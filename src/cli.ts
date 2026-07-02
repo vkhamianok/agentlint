@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { readFile } from 'node:fs/promises';
+
 import { Command } from 'commander';
 import pc from 'picocolors';
 
@@ -7,6 +9,7 @@ import { ClaudeEngineError } from './engine/claude.js';
 import { gateExitCode } from './gate.js';
 import { renderTerminalReport } from './report/terminal.js';
 import { runReview } from './review.js';
+import { RuleError } from './rules.js';
 import { TargetError } from './targets.js';
 
 const program = new Command();
@@ -16,8 +19,21 @@ program
   .description('A semantic review gate for agent-written code, powered by the Claude CLI')
   .version(pkg.version);
 
-async function reviewWorkingTree(): Promise<void> {
-  const outcome = await runReview({ cwd: process.cwd() });
+interface ReviewCliOptions {
+  task?: string;
+  taskFile?: string;
+}
+
+async function resolveTask(opts: ReviewCliOptions): Promise<string | undefined> {
+  if (opts.task && opts.taskFile) {
+    throw new TargetError('Use either --task or --task-file, not both.');
+  }
+  if (opts.taskFile) return readFile(opts.taskFile, 'utf8');
+  return opts.task;
+}
+
+async function reviewWorkingTree(opts: ReviewCliOptions): Promise<void> {
+  const outcome = await runReview({ cwd: process.cwd(), task: await resolveTask(opts) });
   if (outcome.kind === 'empty') {
     console.log(pc.dim('Nothing to review: the working tree is clean.'));
     process.exitCode = 0;
@@ -35,10 +51,12 @@ async function reviewWorkingTree(): Promise<void> {
 program
   .command('diff', { isDefault: true })
   .description('review uncommitted working-tree changes (default)')
+  .option('--task <text>', 'what the change was supposed to do')
+  .option('--task-file <path>', 'read the task description from a file')
   .action(reviewWorkingTree);
 
 program.parseAsync().catch((err: unknown) => {
-  if (err instanceof ClaudeEngineError || err instanceof TargetError) {
+  if (err instanceof ClaudeEngineError || err instanceof TargetError || err instanceof RuleError) {
     console.error(pc.red(err.message));
     if (err instanceof ClaudeEngineError && err.detail) console.error(pc.dim(err.detail));
   } else {

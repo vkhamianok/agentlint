@@ -1,12 +1,15 @@
 import { ClaudeEngineError, type ClaudeRunOptions, runClaude } from './engine/claude.js';
 import { buildReviewPrompt } from './prompt.js';
+import { loadPrinciples, loadRules } from './rules.js';
 import { type ReviewResult, reviewResultJsonSchema, reviewResultSchema } from './schema.js';
-import { type ChangeSet, resolveWorkingTreeTarget } from './targets.js';
+import { type ChangeSet, resolveRepoRoot, resolveWorkingTreeTarget } from './targets.js';
 
 export type EngineFn = typeof runClaude;
 
 export interface ReviewRunOptions {
   cwd: string;
+  /** What the change was supposed to do (--task / --task-file). */
+  task?: string;
   /** Injectable for tests; defaults to the real claude CLI adapter. */
   engine?: EngineFn;
 }
@@ -26,16 +29,23 @@ const REVIEWER_SETTINGS: Omit<ClaudeRunOptions, 'prompt' | 'appendSystemPrompt' 
 };
 
 export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcome> {
-  const changeSet = await resolveWorkingTreeTarget(opts.cwd);
+  const repoRoot = await resolveRepoRoot(opts.cwd);
+  const changeSet = await resolveWorkingTreeTarget(repoRoot);
   if (isEmpty(changeSet)) return { kind: 'empty' };
 
   const engine = opts.engine ?? runClaude;
-  const { prompt, appendSystemPrompt } = buildReviewPrompt(changeSet);
+  const [principles, rules] = await Promise.all([loadPrinciples(), loadRules(repoRoot)]);
+  const { prompt, appendSystemPrompt } = buildReviewPrompt({
+    changeSet,
+    principles,
+    rules,
+    task: opts.task,
+  });
 
   const envelope = await engine({
     prompt,
     appendSystemPrompt,
-    cwd: opts.cwd,
+    cwd: repoRoot,
     ...REVIEWER_SETTINGS,
   });
 
@@ -58,7 +68,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
       model: 'haiku',
       maxTurns: 4,
       maxBudgetUsd: 0.2,
-      cwd: opts.cwd,
+      cwd: repoRoot,
       timeoutMs: 2 * 60 * 1000,
     });
     structured = converted.structured_output ?? extractJson(converted.result);

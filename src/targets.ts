@@ -32,6 +32,18 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return result.stdout;
 }
 
+/**
+ * Resolves the repository root so that reviews behave the same from any
+ * subdirectory: rules are found, and the reviewer's cwd is the repo root.
+ */
+export async function resolveRepoRoot(cwd: string): Promise<string> {
+  const result = await execa('git', ['rev-parse', '--show-toplevel'], { cwd, reject: false });
+  if (result.exitCode !== 0) {
+    throw new TargetError(`Not a git repository: ${cwd}`);
+  }
+  return path.normalize(result.stdout.trim());
+}
+
 /** The default target: everything not yet committed (staged, unstaged, untracked). */
 export async function resolveWorkingTreeTarget(cwd: string): Promise<ChangeSet> {
   const inRepo = await execa('git', ['rev-parse', '--is-inside-work-tree'], {
