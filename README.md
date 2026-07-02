@@ -120,6 +120,21 @@ Note for rule files written against older versions: `applies` is no longer
 supported in frontmatter (a rule scopes itself better in prose), and any
 unknown frontmatter key is a loud error.
 
+### Generating rules
+
+You do not have to write rules by hand. Describe the rule in any language
+and agentlint writes it in the library's format — Flag, Do not flag, and
+Bad/Good examples included — checks it against the format contract, saves
+it, and prints the result for your review:
+
+```sh
+agentlint add-rule all methods and functions must start with a verb
+agentlint add-rule --global --severity blocker никаких console.log в коде
+```
+
+`--global` writes to `~/.agentlint/rules/` instead of the project;
+`--severity` and `--name` override what the generator picks.
+
 ## Depth profiles
 
 An LLM review costs time and money, so depth is budgeted per entry point:

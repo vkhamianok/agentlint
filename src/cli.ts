@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import { Command } from 'commander';
 import pc from 'picocolors';
 
 import pkg from '../package.json' with { type: 'json' };
+import { addRule } from './addrule.js';
 import { commitAll, generateCommitMessage } from './commit.js';
-import { ConfigError } from './config.js';
+import { ConfigError, loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
 import { runFixes } from './fix.js';
 import { gateExitCode } from './gate.js';
@@ -75,6 +77,44 @@ reviewCommand('range', 'review a commit range')
 reviewCommand('snapshot', 'review the whole project as it is now').action(
   (opts: ReviewCliOptions) => execute({ kind: 'snapshot' }, opts),
 );
+
+program
+  .command('add-rule')
+  .description('generate a rule file from a plain-language description')
+  .argument('<description...>', 'what the rule should enforce, in any language')
+  .option('--global', 'write to ~/.agentlint/rules instead of this project')
+  .option('--severity <severity>', `force a severity: ${severities.join(' | ')}`)
+  .option('--name <name>', 'kebab-case file name (default: derived from the rule)')
+  .action(
+    async (
+      descriptionWords: string[],
+      opts: { global?: boolean; severity?: string; name?: string },
+    ) => {
+      const severity = parseSeverityOption(opts.severity, '--severity');
+      let targetDir: string;
+      let model = 'sonnet';
+      if (opts.global) {
+        targetDir = path.join(os.homedir(), '.agentlint', 'rules');
+      } else {
+        const repoRoot = await resolveRepoRoot(process.cwd());
+        targetDir = path.join(repoRoot, '.agentlint', 'rules');
+        model = (await loadConfig(repoRoot)).models.standard;
+      }
+
+      const rule = await addRule({
+        engine: runClaude,
+        description: descriptionWords.join(' '),
+        targetDir,
+        model,
+        severity,
+        name: opts.name,
+        cwd: process.cwd(),
+      });
+
+      console.log(pc.green(`Created ${rule.file}`) + '\n');
+      console.log(rule.content);
+    },
+  );
 
 /**
  * Escape hatch for hooks (like HUSKY=0): a blocked commit sometimes must
@@ -226,9 +266,13 @@ async function resolveTask(opts: ReviewCliOptions): Promise<string | undefined> 
 }
 
 function parseFailOn(value: string | undefined): Severity | undefined {
+  return parseSeverityOption(value, '--fail-on');
+}
+
+function parseSeverityOption(value: string | undefined, flag: string): Severity | undefined {
   if (value === undefined) return undefined;
   if ((severities as readonly string[]).includes(value)) return value as Severity;
-  throw new ConfigError(`Invalid --fail-on "${value}". Valid: ${severities.join(', ')}.`);
+  throw new ConfigError(`Invalid ${flag} "${value}". Valid: ${severities.join(', ')}.`);
 }
 
 async function writeReports(

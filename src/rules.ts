@@ -40,6 +40,33 @@ export async function loadPrinciples(): Promise<string> {
   return readFile(PRINCIPLES_URL, 'utf8');
 }
 
+/** Raw text of one shipped rule, e.g. as a generation exemplar. */
+export async function readLibraryRuleRaw(spec: string): Promise<string> {
+  return readFile(path.join(LIBRARY_ROOT, `${spec}.md`), 'utf8');
+}
+
+/**
+ * The format contract for a complete rule file (frontmatter + body).
+ * Generated rules must pass it before they are written to disk.
+ */
+export function assertRuleMarkdown(content: string, context: string): void {
+  const { data, content: body } = matter(content);
+  for (const key of Object.keys(data)) {
+    if (key !== 'severity') {
+      throw new RuleError(`${context}: unknown frontmatter key "${key}". Allowed: severity.`);
+    }
+  }
+  parseSeverity(data.severity, context);
+  if (!/^# .+/m.test(body)) {
+    throw new RuleError(`${context}: missing the "# Title" heading.`);
+  }
+  for (const section of ['## Flag', '## Examples', '### Bad', '### Good']) {
+    if (!body.includes(section)) {
+      throw new RuleError(`${context}: missing the "${section}" section.`);
+    }
+  }
+}
+
 export interface LoadRulesOptions {
   /** From config.rules; undefined = load .agentlint/rules/ directories. */
   selectors?: RuleSelector[];
