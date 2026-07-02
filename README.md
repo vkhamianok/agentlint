@@ -52,6 +52,7 @@ npx agentlint --version
 ## Quick start
 
 ```sh
+agentlint init                   # set up config + rules dir (add --hook for husky)
 agentlint                        # review uncommitted working-tree changes
 agentlint --task "Add pagination to the user list"   # review against intent
 agentlint --fix --commit         # fix confirmed findings, re-review, commit
@@ -120,8 +121,10 @@ config instead of copying files:
 }
 ```
 
-Without a `rules` key the `.agentlint/rules/` directories load as before;
-global rules apply either way unless `"inheritGlobalRules": false`.
+The project's `.agentlint/rules/` directory always loads, config or no
+config, and loads last — its rules win over the library and global ones.
+The `rules` key adds shipped and path-selected rules on top; global rules
+apply unless `"inheritGlobalRules": false`.
 
 Note for rule files written against older versions: `applies` is no longer
 supported in frontmatter (a rule scopes itself better in prose), and any

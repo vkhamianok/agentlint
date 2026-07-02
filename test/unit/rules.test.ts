@@ -137,6 +137,21 @@ describe('loadRules with selectors (config.rules)', () => {
     ).rejects.toThrow(/No rule files match/);
   });
 
+  it('always loads the project rules directory, last, even in selector mode', async () => {
+    const { home, repo } = await makeDirs();
+    await addRule(repo, 'local.md', 'Project law.');
+
+    const rules = await loadRules(repo, {
+      homeDir: home,
+      selectors: ['library:naming/self-descriptive-names'],
+    });
+
+    expect(rules.map((r) => [r.source, r.name])).toEqual([
+      ['library', 'naming/self-descriptive-names'],
+      ['project', 'local'],
+    ]);
+  });
+
   it('keeps global rules before selected ones', async () => {
     const { home, repo } = await makeDirs();
     await addRule(home, 'personal.md', 'Global taste.');

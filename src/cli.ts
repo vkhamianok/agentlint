@@ -13,6 +13,7 @@ import { ConfigError, loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
 import { runFixes } from './fix.js';
 import { gateExitCode } from './gate.js';
+import { initProject } from './init.js';
 import { collectAnswers, confirmFindings } from './interactive.js';
 import { type Depth, depths, detectContext } from './profiles.js';
 import { type ReportMeta, buildJsonReport } from './report/json.js';
@@ -77,6 +78,33 @@ reviewCommand('range', 'review a commit range')
 reviewCommand('snapshot', 'review the whole project as it is now').action(
   (opts: ReviewCliOptions) => execute({ kind: 'snapshot' }, opts),
 );
+
+program
+  .command('init')
+  .description('set up agentlint in this repository (idempotent)')
+  .option('--hook', 'also append the review gate to .husky/pre-commit')
+  .action(async (opts: { hook?: boolean }) => {
+    const repoRoot = await resolveRepoRoot(process.cwd());
+    const steps = await initProject({ repoRoot, hook: Boolean(opts.hook) });
+
+    for (const step of steps) {
+      const badge =
+        step.status === 'skipped' ? pc.dim(step.status) : pc.green(pc.bold(step.status));
+      console.log(`${badge}  ${step.name} — ${step.detail}`);
+    }
+
+    console.log(
+      [
+        '',
+        pc.bold('Next steps:'),
+        '  npx agentlint                      review your uncommitted changes',
+        '  npx agentlint add-rule <text>      add a project rule in one sentence',
+        ...(opts.hook
+          ? []
+          : ['  npx agentlint init --hook          gate every commit via husky pre-commit']),
+      ].join('\n'),
+    );
+  });
 
 program
   .command('add-rule')

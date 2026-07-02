@@ -76,9 +76,11 @@ export interface LoadRulesOptions {
 }
 
 /**
- * Loads rules in precedence order: global first, selected/project last —
- * the prompt tells the reviewer that later rules win over earlier ones and
- * that all user rules win over built-in principles.
+ * Loads rules in precedence order — later wins: global taste first, then
+ * config selectors (library and paths), then the project's own
+ * .agentlint/rules directory. The project directory ALWAYS loads, with or
+ * without config.rules: a rule dropped there (e.g. by add-rule) must never
+ * be silently ignored because the config switched to selector mode.
  */
 export async function loadRules(repoRoot: string, opts: LoadRulesOptions = {}): Promise<Rule[]> {
   const homeDir = opts.homeDir ?? os.homedir();
@@ -87,16 +89,13 @@ export async function loadRules(repoRoot: string, opts: LoadRulesOptions = {}): 
       ? []
       : await loadRuleDir(path.join(homeDir, '.agentlint', 'rules'), 'global');
 
-  if (opts.selectors === undefined) {
-    const project = await loadRuleDir(path.join(repoRoot, '.agentlint', 'rules'), 'project');
-    return [...global, ...project];
-  }
-
   const selected: Rule[] = [];
-  for (const selector of opts.selectors) {
+  for (const selector of opts.selectors ?? []) {
     selected.push(...(await resolveSelector(repoRoot, selector)));
   }
-  return [...global, ...selected];
+
+  const project = await loadRuleDir(path.join(repoRoot, '.agentlint', 'rules'), 'project');
+  return [...global, ...selected, ...project];
 }
 
 async function resolveSelector(repoRoot: string, selector: RuleSelector): Promise<Rule[]> {
