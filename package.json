@@ -36,12 +36,14 @@
     "execa": "^9.6.1",
     "gray-matter": "^4.0.3",
     "picocolors": "^1.1.1",
+    "picomatch": "^4.0.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
     "@types/node": "^26.1.0",
+    "@types/picomatch": "^4.0.3",
     "eslint": "^10.6.0",
     "husky": "^9.1.7",
     "prettier": "^3.9.4",

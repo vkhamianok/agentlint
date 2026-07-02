@@ -20,6 +20,13 @@ export function renderTerminalReport(result: ReviewResult, meta: RunMeta = {}): 
     result.verdict === 'pass' ? pc.green(pc.bold('✔ PASS')) : pc.red(pc.bold('✘ BLOCK'));
   lines.push('', `${verdict}  ${result.summary}`, '');
 
+  const counts = (['blocker', 'warning', 'info'] as const)
+    .map((s) => ({ s, n: result.findings.filter((f) => f.severity === s).length }))
+    .filter(({ n }) => n > 0)
+    .map(({ s, n }) => `${n} ${s}${n === 1 ? '' : 's'}`)
+    .join(', ');
+  if (counts) lines.push(pc.bold(counts), '');
+
   const bySeverity: Severity[] = ['blocker', 'warning', 'info'];
   for (const severity of bySeverity) {
     for (const finding of result.findings.filter((f) => f.severity === severity)) {

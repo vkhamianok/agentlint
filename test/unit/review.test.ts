@@ -85,6 +85,50 @@ describe('runReview', () => {
     expect(realCwd.toLowerCase()).toBe(realRepo.toLowerCase());
   });
 
+  it('enforces the maxDiffKb cap before spending money', async () => {
+    const repo = await makeRepo();
+    await mkdir(path.join(repo, '.agentlint'), { recursive: true });
+    await writeFile(path.join(repo, '.agentlint', 'config.json'), '{ "maxDiffKb": 1 }');
+    await write(repo, 'hello.js', `export const blob = "${'x'.repeat(3000)}";\n`);
+    const engine = vi.fn();
+
+    await expect(runReview({ cwd: repo, engine })).rejects.toThrow(/over the 1 KB cap/);
+    expect(engine).not.toHaveBeenCalled();
+  });
+
+  it('applies config model and failOn, with the CLI override winning', async () => {
+    const repo = await makeRepo();
+    await mkdir(path.join(repo, '.agentlint'), { recursive: true });
+    await writeFile(
+      path.join(repo, '.agentlint', 'config.json'),
+      '{ "models": { "standard": "opus" }, "failOn": "warning" }',
+    );
+    await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
+    const engine = vi.fn().mockResolvedValue(envelope(cleanReview));
+
+    const fromConfig = await runReview({ cwd: repo, engine });
+    expect(engine.mock.calls[0]![0].model).toBe('opus');
+    expect(fromConfig).toMatchObject({ kind: 'reviewed', failOn: 'warning' });
+
+    const overridden = await runReview({ cwd: repo, engine, failOn: 'info' });
+    expect(overridden).toMatchObject({ kind: 'reviewed', failOn: 'info' });
+  });
+
+  it('falls back to the commit message as task intent for commit targets', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'hello.js', 'export const hello = () => "v2";\n');
+    const { git } = await import('../helpers/repo.js');
+    await git(repo, 'add', '-A');
+    await git(repo, 'commit', '-m', 'Switch the greeting to v2 for the beta.');
+    const engine = vi.fn().mockResolvedValue(envelope(cleanReview));
+
+    await runReview({ cwd: repo, target: { kind: 'commit', ref: 'HEAD' }, engine });
+
+    const call = engine.mock.calls[0]![0];
+    expect(call.prompt).toContain('Switch the greeting to v2 for the beta.');
+    expect(call.prompt).toContain('Judge the change against this intent');
+  });
+
   it('salvages a prose-only answer with a cheap conversion call', async () => {
     const repo = await makeRepo();
     await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
@@ -124,6 +168,7 @@ describe('runReview', () => {
 
 describe('buildReviewPrompt', () => {
   const changeSet = {
+    kind: 'diff' as const,
     description: 'test change',
     diff: 'diff --git a/x b/x\n+added line',
     newFiles: [{ path: 'new.ts', content: 'const a = 1;' }],

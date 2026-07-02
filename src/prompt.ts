@@ -40,6 +40,12 @@ export function buildReviewPrompt(ctx: PromptContext): ReviewPrompt {
     renderTask(ctx.task),
   ];
 
+  if (ctx.changeSet.kind === 'snapshot') {
+    sections.push(
+      `## Project files\n\n${ctx.changeSet.files.join('\n')}`,
+      'This is a full-project snapshot review: there is no diff. Read the files with your tools, prioritizing entry points and code where defects hurt most. You cannot read everything — say in the summary what you did and did not cover.',
+    );
+  }
   if (ctx.changeSet.diff.trim()) {
     sections.push(`## Diff\n\n\`\`\`diff\n${ctx.changeSet.diff}\n\`\`\``);
   }

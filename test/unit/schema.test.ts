@@ -25,6 +25,15 @@ describe('reviewResultSchema', () => {
     expect(reviewResultSchema.safeParse(valid).success).toBe(true);
   });
 
+  it('tolerates extra keys from the model instead of failing the review', () => {
+    const withExtras = {
+      ...valid,
+      reviewer_notes: 'extra top-level key',
+      findings: [{ ...valid.findings[0], suggestion: 'extra finding key' }],
+    };
+    expect(reviewResultSchema.safeParse(withExtras).success).toBe(true);
+  });
+
   it('rejects a finding without fixes', () => {
     const noFixes = {
       ...valid,
