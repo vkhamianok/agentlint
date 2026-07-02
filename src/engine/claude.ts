@@ -8,7 +8,9 @@ import { ExecaError, execa } from 'execa';
  *                             avoid Windows argv length limits on big diffs
  *   --output-format json      single JSON envelope on stdout
  *   --json-schema <schema>    CLI-side structured output validation;
- *                             validated object lands in envelope.structured_output
+ *                             validated object lands in envelope.structured_output.
+ *                             MUST NOT contain a top-level $schema key: 2.1.198
+ *                             then silently drops the StructuredOutput tool
  *   --tools <list>            restrict built-in tools ("" disables all)
  *   --append-system-prompt    principles + rules + output contract
  *   --model <alias>           per depth profile
@@ -76,6 +78,10 @@ export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope>
     envelope = JSON.parse(stdout) as ClaudeEnvelope;
   } catch {
     throw new ClaudeEngineError('Claude CLI did not print a JSON envelope', stdout.slice(0, 2000));
+  }
+  if (process.env.AGENTLINT_DEBUG) {
+    console.error(`[agentlint debug] claude ${args.join(' ')}`);
+    console.error(`[agentlint debug] envelope: ${stdout}`);
   }
   if (envelope.is_error) {
     throw new ClaudeEngineError(
