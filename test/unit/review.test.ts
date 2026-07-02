@@ -302,16 +302,15 @@ describe('buildReviewPrompt', () => {
     expect(appendSystemPrompt).toContain('Precision beats recall');
   });
 
-  it('renders user rules after principles, with attributes and precedence note', () => {
+  it('renders user rules after principles, with severity and precedence note', () => {
     const { appendSystemPrompt } = buildReviewPrompt({
       ...base,
       rules: [
         { name: 'personal', source: 'global' as const, body: 'No console.log.' },
         {
-          name: 'db-layer',
+          name: 'db/repository-layer',
           source: 'project' as const,
           severity: 'blocker' as const,
-          applies: 'src/db/**',
           body: 'No raw SQL.',
         },
       ],
@@ -319,7 +318,7 @@ describe('buildReviewPrompt', () => {
 
     expect(appendSystemPrompt).toContain('global rule: personal');
     expect(appendSystemPrompt).toContain(
-      'project rule: db-layer (report violations as: blocker; applies only to files matching: src/db/**)',
+      'project rule: db/repository-layer (report violations as: blocker)',
     );
     expect(appendSystemPrompt).toContain('OVERRIDE the built-in principles');
     expect(appendSystemPrompt.indexOf('PRINCIPLES TEXT')).toBeLessThan(

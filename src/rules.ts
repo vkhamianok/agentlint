@@ -1,22 +1,29 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import matter from 'gray-matter';
+import picomatch from 'picomatch';
 
 import { type Severity, severities } from './schema.js';
 
-/** A user-defined review rule: plain Markdown with optional frontmatter. */
+/** A review rule: plain Markdown with a severity in the frontmatter. */
 export interface Rule {
-  /** File name without extension; used as the rule's display name. */
+  /** Rule path without extension, e.g. "structure/single-source-of-truth". */
   name: string;
-  source: 'global' | 'project';
+  source: 'library' | 'global' | 'project';
   /** Report violations of this rule at this severity. */
   severity?: Severity;
-  /** Glob scoping the rule to matching files. */
-  applies?: string;
   body: string;
 }
+
+/**
+ * One entry of config.rules: "library:<category>[/<rule>]" enables shipped
+ * rules, a path or glob loads the project's own files, and the object form
+ * overrides the severity of whatever it selects.
+ */
+export type RuleSelector = string | { rule: string; severity: Severity };
 
 export class RuleError extends Error {
   constructor(message: string) {
@@ -26,27 +33,98 @@ export class RuleError extends Error {
 }
 
 const PRINCIPLES_URL = new URL('../prompts/principles.md', import.meta.url);
+const LIBRARY_ROOT = fileURLToPath(new URL('../rules/', import.meta.url));
 
 /** Built-in principles shipped with the package. */
 export async function loadPrinciples(): Promise<string> {
   return readFile(PRINCIPLES_URL, 'utf8');
 }
 
+export interface LoadRulesOptions {
+  /** From config.rules; undefined = load .agentlint/rules/ directories. */
+  selectors?: RuleSelector[];
+  /** Global ~/.agentlint rules apply unless explicitly turned off. */
+  inheritGlobalRules?: boolean;
+  homeDir?: string;
+}
+
 /**
- * Loads user rules. Order encodes precedence: global first, project last —
+ * Loads rules in precedence order: global first, selected/project last —
  * the prompt tells the reviewer that later rules win over earlier ones and
  * that all user rules win over built-in principles.
  */
-export async function loadRules(repoRoot: string, homeDir = os.homedir()): Promise<Rule[]> {
-  const global = await loadRuleDir(path.join(homeDir, '.agentlint', 'rules'), 'global');
-  const project = await loadRuleDir(path.join(repoRoot, '.agentlint', 'rules'), 'project');
-  return [...global, ...project];
+export async function loadRules(repoRoot: string, opts: LoadRulesOptions = {}): Promise<Rule[]> {
+  const homeDir = opts.homeDir ?? os.homedir();
+  const global =
+    opts.inheritGlobalRules === false
+      ? []
+      : await loadRuleDir(path.join(homeDir, '.agentlint', 'rules'), 'global');
+
+  if (opts.selectors === undefined) {
+    const project = await loadRuleDir(path.join(repoRoot, '.agentlint', 'rules'), 'project');
+    return [...global, ...project];
+  }
+
+  const selected: Rule[] = [];
+  for (const selector of opts.selectors) {
+    selected.push(...(await resolveSelector(repoRoot, selector)));
+  }
+  return [...global, ...selected];
 }
 
-async function loadRuleDir(dir: string, source: Rule['source']): Promise<Rule[]> {
-  let entries: string[];
+async function resolveSelector(repoRoot: string, selector: RuleSelector): Promise<Rule[]> {
+  if (typeof selector === 'object') {
+    const rules = await resolveSelector(repoRoot, selector.rule);
+    return rules.map((rule) => ({ ...rule, severity: selector.severity }));
+  }
+  if (selector.startsWith('library:')) {
+    return loadLibraryRules(selector.slice('library:'.length));
+  }
+  return loadPathRules(repoRoot, selector);
+}
+
+/** "structure" enables a whole shipped category, "structure/<rule>" one rule. */
+async function loadLibraryRules(spec: string): Promise<Rule[]> {
+  const asDirectory = path.join(LIBRARY_ROOT, spec);
+  if (await isDirectory(asDirectory)) {
+    const rules = await loadRuleDir(asDirectory, 'library', `${spec}/`);
+    if (rules.length > 0) return rules;
+  }
+  const asFile = `${asDirectory}.md`;
+  if (await isFile(asFile)) {
+    return [await loadRuleFile(asFile, 'library', spec)];
+  }
+  throw new RuleError(
+    `Unknown library rule "${spec}". Available categories: ${await listLibraryCategories()}.`,
+  );
+}
+
+/** A repo-relative .md path, or a glob over the repo's .md files. */
+async function loadPathRules(repoRoot: string, selector: string): Promise<Rule[]> {
+  if (!/[*?[]/.test(selector)) {
+    const file = path.join(repoRoot, selector);
+    if (!(await isFile(file))) {
+      throw new RuleError(`Rule file not found: ${selector} (looked in ${repoRoot}).`);
+    }
+    return [await loadRuleFile(file, 'project', toRuleName(selector))];
+  }
+
+  const isMatch = picomatch(selector.replace(/^\.\//, ''), { dot: false });
+  const files = (await walkMarkdownFiles(repoRoot)).filter((relative) => isMatch(relative));
+  if (files.length === 0) {
+    throw new RuleError(`No rule files match "${selector}" in ${repoRoot}.`);
+  }
+  return Promise.all(
+    files.map((relative) =>
+      loadRuleFile(path.join(repoRoot, relative), 'project', toRuleName(relative)),
+    ),
+  );
+}
+
+async function loadRuleDir(dir: string, source: Rule['source'], namePrefix = ''): Promise<Rule[]> {
+  let entries;
   try {
-    entries = await readdir(dir);
+    entries = await readdir(dir, { withFileTypes: true });
   } catch (err) {
     if (isMissingDir(err)) return []; // no rules directory — perfectly fine
     // Anything else (permissions, a file where a dir should be) must not
@@ -57,19 +135,94 @@ async function loadRuleDir(dir: string, source: Rule['source']): Promise<Rule[]>
   }
 
   const rules: Rule[] = [];
-  for (const file of entries.filter((f) => f.endsWith('.md')).sort()) {
-    const raw = await readFile(path.join(dir, file), 'utf8');
-    const { data, content } = matter(raw);
-    if (!content.trim()) continue;
-    rules.push({
-      name: path.basename(file, '.md'),
-      source,
-      severity: parseSeverity(data.severity, path.join(dir, file)),
-      applies: parseApplies(data.applies, path.join(dir, file)),
-      body: content.trim(),
-    });
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (entry.isDirectory()) {
+      rules.push(
+        ...(await loadRuleDir(path.join(dir, entry.name), source, `${namePrefix}${entry.name}/`)),
+      );
+    } else if (entry.name.endsWith('.md') && entry.name.toLowerCase() !== 'readme.md') {
+      const file = path.join(dir, entry.name);
+      const rule = await loadRuleFile(file, source, namePrefix + path.basename(entry.name, '.md'));
+      if (rule.body) rules.push(rule); // empty files are skipped when scanning
+    }
   }
   return rules;
+}
+
+async function loadRuleFile(file: string, source: Rule['source'], name: string): Promise<Rule> {
+  const { data, content } = matter(await readFile(file, 'utf8'));
+
+  // The frontmatter contract is severity and nothing else; a typo'd or
+  // outdated key silently ignored would mean a rule that never behaves as
+  // written, so unknown keys fail loudly.
+  for (const key of Object.keys(data)) {
+    if (key !== 'severity') {
+      throw new RuleError(`Unknown frontmatter key "${key}" in rule ${file}. Allowed: severity.`);
+    }
+  }
+
+  return {
+    name,
+    source,
+    severity: parseSeverity(data.severity, file),
+    body: content.trim(),
+  };
+}
+
+function parseSeverity(value: unknown, file: string): Severity | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'string' && (severities as readonly string[]).includes(value)) {
+    return value as Severity;
+  }
+  throw new RuleError(
+    `Invalid severity "${String(value)}" in rule ${file}. Valid: ${severities.join(', ')}.`,
+  );
+}
+
+const SKIPPED_WALK_DIRS = new Set(['node_modules', '.git', 'dist']);
+
+async function walkMarkdownFiles(root: string, relative = ''): Promise<string[]> {
+  const entries = await readdir(path.join(root, relative), { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const entryRelative = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      if (!SKIPPED_WALK_DIRS.has(entry.name)) {
+        files.push(...(await walkMarkdownFiles(root, entryRelative)));
+      }
+    } else if (entry.name.endsWith('.md')) {
+      files.push(entryRelative);
+    }
+  }
+  return files;
+}
+
+function toRuleName(relativePath: string): string {
+  return relativePath.replace(/^\.\//, '').replace(/\\/g, '/').replace(/\.md$/, '');
+}
+
+async function listLibraryCategories(): Promise<string> {
+  const entries = await readdir(LIBRARY_ROOT, { withFileTypes: true });
+  return entries
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .join(', ');
+}
+
+async function isDirectory(p: string): Promise<boolean> {
+  try {
+    return (await stat(p)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function isFile(p: string): Promise<boolean> {
+  try {
+    return (await stat(p)).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function isMissingDir(err: unknown): boolean {
@@ -78,25 +231,5 @@ function isMissingDir(err: unknown): boolean {
     'code' in err &&
     ((err as NodeJS.ErrnoException).code === 'ENOENT' ||
       (err as NodeJS.ErrnoException).code === 'ENOTDIR')
-  );
-}
-
-function parseApplies(value: unknown, file: string): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === 'string' && value.trim()) return value;
-  // A mistyped scope silently applied repo-wide is the same class of silent
-  // misconfiguration as a bad severity — fail loudly.
-  throw new RuleError(`Invalid applies "${String(value)}" in rule ${file}: must be a glob string.`);
-}
-
-function parseSeverity(value: unknown, file: string): Severity | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === 'string' && (severities as readonly string[]).includes(value)) {
-    return value as Severity;
-  }
-  // A misspelled severity silently ignored would mean a rule that never
-  // blocks; config mistakes must fail loudly.
-  throw new RuleError(
-    `Invalid severity "${String(value)}" in rule ${file}. Valid: ${severities.join(', ')}.`,
   );
 }

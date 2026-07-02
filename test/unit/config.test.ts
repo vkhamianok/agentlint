@@ -57,6 +57,25 @@ describe('loadConfig', () => {
     expect(config.depth).toEqual({ manual: 'standard', hook: 'deep', ci: 'deep' });
   });
 
+  it('accepts rule selectors and inheritGlobalRules', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(repo, {
+      rules: [
+        'library:structure',
+        { rule: 'library:naming/self-descriptive-names', severity: 'info' },
+      ],
+      inheritGlobalRules: false,
+    });
+
+    const config = await loadConfig(repo, home);
+
+    expect(config.rules).toEqual([
+      'library:structure',
+      { rule: 'library:naming/self-descriptive-names', severity: 'info' },
+    ]);
+    expect(config.inheritGlobalRules).toBe(false);
+  });
+
   it('fails loudly on unknown keys', async () => {
     const { home, repo } = await makeDirs();
     await writeConfig(repo, { failsOn: 'blocker' });

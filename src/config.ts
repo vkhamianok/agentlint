@@ -5,6 +5,7 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import type { Depth } from './profiles.js';
+import type { RuleSelector } from './rules.js';
 import { type Severity, severities } from './schema.js';
 
 export class ConfigError extends Error {
@@ -35,6 +36,12 @@ const configFileSchema = z.strictObject({
     })
     .optional(),
   ignore: z.array(z.string()).optional(),
+  rules: z
+    .array(
+      z.union([z.string(), z.strictObject({ rule: z.string(), severity: z.enum(severities) })]),
+    )
+    .optional(),
+  inheritGlobalRules: z.boolean().optional(),
 });
 
 type ConfigFile = z.infer<typeof configFileSchema>;
@@ -50,6 +57,13 @@ export interface AgentlintConfig {
   depth: { manual: Depth; hook: Depth; ci: Depth };
   /** Globs excluded from review. Setting this REPLACES the defaults. */
   ignore: string[];
+  /**
+   * Rule selectors ("library:structure", paths, globs, severity overrides).
+   * Absent = load .agentlint/rules/ directories, the zero-config default.
+   */
+  rules?: RuleSelector[];
+  /** Global ~/.agentlint rules apply unless set to false. */
+  inheritGlobalRules: boolean;
 }
 
 export const DEFAULT_CONFIG: AgentlintConfig = {
@@ -57,6 +71,7 @@ export const DEFAULT_CONFIG: AgentlintConfig = {
   maxDiffKb: 200,
   models: { quick: 'haiku', standard: 'sonnet', deep: 'opus' },
   depth: { manual: 'standard', hook: 'quick', ci: 'deep' },
+  inheritGlobalRules: true,
   ignore: [
     '**/node_modules/**',
     '**/dist/**',
@@ -95,6 +110,8 @@ function mergeConfig(acc: AgentlintConfig, file: ConfigFile): AgentlintConfig {
       ci: file.depth?.ci ?? acc.depth.ci,
     },
     ignore: file.ignore ?? acc.ignore,
+    rules: file.rules ?? acc.rules,
+    inheritGlobalRules: file.inheritGlobalRules ?? acc.inheritGlobalRules,
   };
 }
 

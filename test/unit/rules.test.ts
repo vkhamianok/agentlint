@@ -15,10 +15,10 @@ async function makeDirs(): Promise<{ home: string; repo: string }> {
   return { home, repo };
 }
 
-async function addRule(root: string, name: string, content: string): Promise<void> {
-  const dir = path.join(root, '.agentlint', 'rules');
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, name), content);
+async function addRule(root: string, relative: string, content: string): Promise<void> {
+  const file = path.join(root, '.agentlint', 'rules', relative);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, content);
 }
 
 describe('loadPrinciples', () => {
@@ -29,62 +29,123 @@ describe('loadPrinciples', () => {
   });
 });
 
-describe('loadRules', () => {
+describe('loadRules without selectors (directory convention)', () => {
   it('returns no rules when neither directory exists', async () => {
     const { home, repo } = await makeDirs();
-    expect(await loadRules(repo, home)).toEqual([]);
+    expect(await loadRules(repo, { homeDir: home })).toEqual([]);
   });
 
-  it('loads project and global rules, global first', async () => {
+  it('loads global then project rules, recursing into subdirectories', async () => {
     const { home, repo } = await makeDirs();
     await addRule(home, 'personal.md', 'Never use console.log in committed code.');
-    await addRule(repo, 'db-layer.md', 'All DB access goes through repositories.');
+    await addRule(repo, 'db/repository-layer.md', 'All DB access goes through repositories.');
 
-    const rules = await loadRules(repo, home);
+    const rules = await loadRules(repo, { homeDir: home });
 
     expect(rules.map((r) => [r.source, r.name])).toEqual([
       ['global', 'personal'],
-      ['project', 'db-layer'],
+      ['project', 'db/repository-layer'],
     ]);
-    expect(rules[1]!.body).toBe('All DB access goes through repositories.');
   });
 
-  it('parses severity and applies from frontmatter', async () => {
+  it('drops global rules when inheritGlobalRules is false', async () => {
     const { home, repo } = await makeDirs();
-    await addRule(
-      repo,
-      'scoped.md',
-      '---\nseverity: blocker\napplies: "src/db/**"\n---\nNo raw SQL outside the repository layer.',
-    );
+    await addRule(home, 'personal.md', 'Global taste.');
+    await addRule(repo, 'local.md', 'Project law.');
 
-    const [rule] = await loadRules(repo, home);
+    const rules = await loadRules(repo, { homeDir: home, inheritGlobalRules: false });
 
-    expect(rule).toMatchObject({
-      severity: 'blocker',
-      applies: 'src/db/**',
-      body: 'No raw SQL outside the repository layer.',
-    });
+    expect(rules.map((r) => r.name)).toEqual(['local']);
   });
 
-  it('skips rules with an empty body and non-md files', async () => {
+  it('parses severity and skips empty bodies and README.md', async () => {
     const { home, repo } = await makeDirs();
+    await addRule(repo, 'strict.md', '---\nseverity: blocker\n---\nNo raw SQL.');
     await addRule(repo, 'empty.md', '---\nseverity: info\n---\n   ');
-    await addRule(repo, 'notes.txt', 'not a rule');
+    await addRule(repo, 'README.md', 'This directory holds our rules.');
 
-    expect(await loadRules(repo, home)).toEqual([]);
+    const rules = await loadRules(repo, { homeDir: home });
+
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatchObject({ name: 'strict', severity: 'blocker', body: 'No raw SQL.' });
   });
 
-  it('fails loudly on a misspelled severity', async () => {
+  it('fails loudly on a misspelled severity and on unknown frontmatter keys', async () => {
     const { home, repo } = await makeDirs();
     await addRule(repo, 'typo.md', '---\nseverity: blocking\n---\nSome rule.');
+    await expect(loadRules(repo, { homeDir: home })).rejects.toThrow(RuleError);
 
-    await expect(loadRules(repo, home)).rejects.toThrow(RuleError);
+    const { home: home2, repo: repo2 } = await makeDirs();
+    await addRule(repo2, 'stale.md', '---\nseverity: info\napplies: "src/**"\n---\nSome rule.');
+    await expect(loadRules(repo2, { homeDir: home2 })).rejects.toThrow(/Unknown frontmatter key/);
+  });
+});
+
+describe('loadRules with selectors (config.rules)', () => {
+  it('loads a whole library category with prefixed names', async () => {
+    const { home, repo } = await makeDirs();
+
+    const rules = await loadRules(repo, { homeDir: home, selectors: ['library:structure'] });
+
+    expect(rules.length).toBeGreaterThanOrEqual(5);
+    expect(rules.every((r) => r.source === 'library')).toBe(true);
+    expect(rules.map((r) => r.name)).toContain('structure/single-source-of-truth');
   });
 
-  it('fails loudly on a non-string applies scope', async () => {
+  it('loads a single library rule and applies severity overrides', async () => {
     const { home, repo } = await makeDirs();
-    await addRule(repo, 'scope.md', '---\napplies: 42\n---\nSome rule.');
 
-    await expect(loadRules(repo, home)).rejects.toThrow(/must be a glob string/);
+    const rules = await loadRules(repo, {
+      homeDir: home,
+      selectors: [{ rule: 'library:naming/self-descriptive-names', severity: 'info' }],
+    });
+
+    expect(rules).toEqual([
+      expect.objectContaining({ name: 'naming/self-descriptive-names', severity: 'info' }),
+    ]);
+  });
+
+  it('rejects an unknown library spec with the available categories', async () => {
+    const { home, repo } = await makeDirs();
+
+    await expect(
+      loadRules(repo, { homeDir: home, selectors: ['library:nonsense'] }),
+    ).rejects.toThrow(/Unknown library rule "nonsense".*structure/);
+  });
+
+  it('loads project files by path and by glob', async () => {
+    const { home, repo } = await makeDirs();
+    await mkdir(path.join(repo, 'team-rules'), { recursive: true });
+    await writeFile(path.join(repo, 'team-rules', 'one.md'), 'Rule one.');
+    await writeFile(path.join(repo, 'team-rules', 'two.md'), 'Rule two.');
+
+    const byPath = await loadRules(repo, { homeDir: home, selectors: ['team-rules/one.md'] });
+    expect(byPath.map((r) => r.name)).toEqual(['team-rules/one']);
+
+    const byGlob = await loadRules(repo, { homeDir: home, selectors: ['team-rules/*.md'] });
+    expect(byGlob.map((r) => r.name).sort()).toEqual(['team-rules/one', 'team-rules/two']);
+  });
+
+  it('fails loudly when a path or glob matches nothing', async () => {
+    const { home, repo } = await makeDirs();
+
+    await expect(loadRules(repo, { homeDir: home, selectors: ['missing.md'] })).rejects.toThrow(
+      /not found/,
+    );
+    await expect(
+      loadRules(repo, { homeDir: home, selectors: ['team-rules/*.md'] }),
+    ).rejects.toThrow(/No rule files match/);
+  });
+
+  it('keeps global rules before selected ones', async () => {
+    const { home, repo } = await makeDirs();
+    await addRule(home, 'personal.md', 'Global taste.');
+
+    const rules = await loadRules(repo, {
+      homeDir: home,
+      selectors: ['library:naming/self-descriptive-names'],
+    });
+
+    expect(rules.map((r) => r.source)).toEqual(['global', 'library']);
   });
 });

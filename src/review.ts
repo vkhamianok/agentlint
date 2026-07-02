@@ -69,7 +69,13 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   enforceSizeCap(changeSet, profile);
 
   const engine = opts.engine ?? runClaude;
-  const [principles, rules] = await Promise.all([loadPrinciples(), loadRules(repoRoot)]);
+  const [principles, rules] = await Promise.all([
+    loadPrinciples(),
+    loadRules(repoRoot, {
+      selectors: config.rules,
+      inheritGlobalRules: config.inheritGlobalRules,
+    }),
+  ]);
   const { prompt, appendSystemPrompt } = buildReviewPrompt({
     changeSet,
     principles,

@@ -85,14 +85,40 @@ Rules are plain Markdown — instructions to the reviewer, not a DSL. They
 ```markdown
 ---
 severity: blocker # optional: report violations at this severity
-applies: 'src/db/**' # optional: scope the rule to a glob
 ---
 
-All database access goes through the repository layer.
+# Database access goes through the repository layer
+
 Flag any query built outside src/db/repositories/.
 ```
 
 A rule can also mute a built-in principle ("ignore formatting entirely").
+The recommended format adds `## Flag`, `## Do not flag`, and `## Examples`
+sections with short Bad/Good snippets — see `rules/README.md`. Negative
+examples are the best tool against false positives.
+
+agentlint also ships a built-in library of default rules (`rules/` in the
+package): fix the cause not the symptom, no swallowed errors, no history
+comments, single source of truth, and more. Enable rules explicitly in the
+config instead of copying files:
+
+```json
+{
+  "rules": [
+    "library:structure",
+    "library:comments/no-history-comments",
+    "./team-rules/*.md",
+    { "rule": "library:naming/self-descriptive-names", "severity": "info" }
+  ]
+}
+```
+
+Without a `rules` key the `.agentlint/rules/` directories load as before;
+global rules apply either way unless `"inheritGlobalRules": false`.
+
+Note for rule files written against older versions: `applies` is no longer
+supported in frontmatter (a rule scopes itself better in prose), and any
+unknown frontmatter key is a loud error.
 
 ## Depth profiles
 

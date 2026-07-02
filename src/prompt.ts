@@ -100,18 +100,16 @@ function renderTask(task: string | undefined): string {
 
 function renderRules(rules: Rule[]): string {
   const rendered = rules.map((rule) => {
-    const attrs: string[] = [];
-    if (rule.severity) attrs.push(`report violations as: ${rule.severity}`);
-    if (rule.applies) attrs.push(`applies only to files matching: ${rule.applies}`);
-    const suffix = attrs.length > 0 ? ` (${attrs.join('; ')})` : '';
+    const suffix = rule.severity ? ` (report violations as: ${rule.severity})` : '';
     return `### ${rule.source} rule: ${rule.name}${suffix}\n\n${rule.body}`;
   });
 
-  return `## User rules
+  return `## Enabled rules
 
-The user defined these rules. They OVERRIDE the built-in principles wherever
-they conflict, including instructions to ignore something entirely. When rules
-conflict with each other, later rules win (project rules beat global rules).
+The user enabled these rules (from the shipped library, their global
+defaults, or this project). They OVERRIDE the built-in principles wherever
+they conflict, including instructions to ignore something entirely. When
+rules conflict with each other, later rules win.
 
 ${rendered.join('\n\n')}`;
 }
