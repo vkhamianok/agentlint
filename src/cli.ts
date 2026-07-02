@@ -76,8 +76,19 @@ reviewCommand('snapshot', 'review the whole project as it is now').action(
   (opts: ReviewCliOptions) => execute({ kind: 'snapshot' }, opts),
 );
 
+/**
+ * Escape hatch for hooks (like HUSKY=0): a blocked commit sometimes must
+ * land anyway, and --no-verify skips every hook, not just this one.
+ */
+function skipRequested(): boolean {
+  if (!process.env.AGENTLINT_SKIP || process.env.AGENTLINT_SKIP === '0') return false;
+  console.log(pc.dim('agentlint skipped (AGENTLINT_SKIP is set).'));
+  return true;
+}
+
 /** The default-command flow: review → optional fix + re-review → optional commit. */
 async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
+  if (skipRequested()) return;
   const target: TargetSpec = { kind: 'working-tree' };
   const task = await resolveTask(opts);
   const interactive = !opts.nonInteractive && Boolean(process.stdout.isTTY) && !process.env.CI;
@@ -172,6 +183,7 @@ function renderOutcome(outcome: Extract<ReviewRunOutcome, { kind: 'reviewed' }>)
 }
 
 async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void> {
+  if (skipRequested()) return;
   const outcome = await runReview({
     cwd: process.cwd(),
     target,

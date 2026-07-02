@@ -19,7 +19,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "review": "node dist/cli.js",
-    "prepare": "husky"
+    "prepare": "husky",
+    "prepublishOnly": "pnpm build"
   },
   "engines": {
     "node": ">=20"
