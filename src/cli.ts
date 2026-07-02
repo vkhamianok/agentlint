@@ -7,7 +7,6 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import pkg from '../package.json' with { type: 'json' };
-import { commitAll, generateCommitMessage } from './commit.js';
 import { ConfigError, loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
 import { runFixes } from './fix.js';
@@ -41,7 +40,6 @@ interface ReviewCliOptions {
   reportMd?: string;
   fix?: boolean;
   yes?: boolean;
-  commit?: boolean;
 }
 
 // The default command chain makes bare `agentlint` mean `review diff`:
@@ -66,7 +64,6 @@ function reviewTarget(name: string, description: string, isDefault = false): Com
 reviewTarget('diff', 'review uncommitted working-tree changes (default)', true)
   .option('--fix', 'apply confirmed fixes with a separate fixer run, then re-review once')
   .option('--yes', 'with --fix: fix all blocking findings without prompting')
-  .option('--commit', 'commit the working tree when the final review passes')
   .action((opts: ReviewCliOptions) => executeDiffFlow(opts));
 
 reviewTarget('staged', 'review staged changes only').action((opts: ReviewCliOptions) =>
@@ -230,7 +227,7 @@ function skipRequested(): boolean {
   return true;
 }
 
-/** The default-command flow: review → optional fix + re-review → optional commit. */
+/** The default-command flow: review → optional fix + re-review. */
 async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
   if (skipRequested()) return;
   const target: TargetSpec = { kind: 'working-tree' };
@@ -291,23 +288,6 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
       exitCode = gateExitCode(outcome.result, outcome.failOn);
     } else {
       console.log(pc.dim('No findings confirmed; nothing to fix.'));
-    }
-  }
-
-  if (opts.commit) {
-    if (exitCode === 0) {
-      const repoRoot = await resolveRepoRoot(process.cwd());
-      const message = await generateCommitMessage({
-        engine: runClaude,
-        repoRoot,
-        model: 'haiku',
-        task,
-        reviewSummary: outcome.result.summary,
-      });
-      const hash = await commitAll(repoRoot, message);
-      console.log(pc.green(`Committed ${hash}: ${message.split('\n')[0]}`));
-    } else {
-      console.log(pc.dim('Not committing: the review did not pass.'));
     }
   }
 
