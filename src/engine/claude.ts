@@ -1,3 +1,8 @@
+import { randomUUID } from 'node:crypto';
+import { rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import { ExecaError, execa } from 'execa';
 
 /**
@@ -14,7 +19,12 @@ import { ExecaError, execa } from 'execa';
  *   --tools <list>            restrict built-in tools ("" disables all)
  *   --permission-mode <mode>  "acceptEdits" for fixer runs only (verified
  *                             live in the M5 --fix flow); reviews never edit
- *   --append-system-prompt    principles + rules + output contract
+ *   --append-system-prompt-file <path>
+ *                             principles + rules + output contract, via a
+ *                             temp file: the payload (~25KB with the default
+ *                             library) exceeds cmd.exe's 8191-char limit and
+ *                             crowds the 32767-char CreateProcess limit as
+ *                             argv. Undocumented in --help but verified live
  *   --model <alias>           per depth profile
  *   --max-budget-usd <n>      hard cost cap per run
  *   --max-turns <n>           hard turn cap per run
@@ -71,30 +81,45 @@ export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope>
   if (opts.jsonSchema) args.push('--json-schema', JSON.stringify(opts.jsonSchema));
   if (opts.tools) args.push('--tools', opts.tools.join(','));
   if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
-  if (opts.appendSystemPrompt) args.push('--append-system-prompt', opts.appendSystemPrompt);
   if (opts.model) args.push('--model', opts.model);
   if (opts.maxBudgetUsd !== undefined) args.push('--max-budget-usd', String(opts.maxBudgetUsd));
   if (opts.maxTurns !== undefined) args.push('--max-turns', String(opts.maxTurns));
 
-  const stdout = await spawnClaude(args, opts);
+  // The system prompt travels via a temp file, never argv: with the rule
+  // library enabled it is far past cmd.exe's command-line limit.
+  let systemPromptFile: string | undefined;
+  if (opts.appendSystemPrompt) {
+    systemPromptFile = path.join(os.tmpdir(), `agentlint-system-${randomUUID()}.md`);
+    await writeFile(systemPromptFile, opts.appendSystemPrompt, 'utf8');
+    args.push('--append-system-prompt-file', systemPromptFile);
+  }
 
-  let envelope: ClaudeEnvelope;
   try {
-    envelope = JSON.parse(stdout) as ClaudeEnvelope;
-  } catch {
-    throw new ClaudeEngineError('Claude CLI did not print a JSON envelope', stdout.slice(0, 2000));
+    const stdout = await spawnClaude(args, opts);
+
+    let envelope: ClaudeEnvelope;
+    try {
+      envelope = JSON.parse(stdout) as ClaudeEnvelope;
+    } catch {
+      throw new ClaudeEngineError(
+        'Claude CLI did not print a JSON envelope',
+        stdout.slice(0, 2000),
+      );
+    }
+    if (process.env.AGENTLINT_DEBUG) {
+      console.error(`[agentlint debug] claude ${args.join(' ')}`);
+      console.error(`[agentlint debug] envelope: ${stdout}`);
+    }
+    if (envelope.is_error) {
+      throw new ClaudeEngineError(
+        `Claude CLI reported an error (${envelope.subtype})`,
+        envelope.result,
+      );
+    }
+    return envelope;
+  } finally {
+    if (systemPromptFile) await rm(systemPromptFile, { force: true });
   }
-  if (process.env.AGENTLINT_DEBUG) {
-    console.error(`[agentlint debug] claude ${args.join(' ')}`);
-    console.error(`[agentlint debug] envelope: ${stdout}`);
-  }
-  if (envelope.is_error) {
-    throw new ClaudeEngineError(
-      `Claude CLI reported an error (${envelope.subtype})`,
-      envelope.result,
-    );
-  }
-  return envelope;
 }
 
 async function spawnClaude(args: string[], opts: ClaudeRunOptions): Promise<string> {

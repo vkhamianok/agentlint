@@ -1,0 +1,10 @@
+{
+  "rules": [
+    "library:root-cause",
+    "library:errors",
+    "library:comments",
+    "library:structure",
+    "library:naming",
+    "library:prose"
+  ]
+}
