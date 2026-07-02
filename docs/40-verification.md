@@ -8,7 +8,7 @@ demonstrated check. "Live" = a real run against the installed Claude CLI
 
 The gate reviews every change of this repository itself: every milestone
 diff since M1 was reviewed by agentlint before commit (dogfooding), and
-`.husky/pre-commit` runs `agentlint staged --depth quick` on every commit.
+`.husky/pre-commit` runs `agentlint review staged --depth quick` on every commit.
 The M4 dogfood run **blocked a real bug** (a `Promise.all` failure mode in
 the refutation pass) before it reached history.
 

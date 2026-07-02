@@ -7,7 +7,6 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import pkg from '../package.json' with { type: 'json' };
-import { addRule } from './addrule.js';
 import { commitAll, generateCommitMessage } from './commit.js';
 import { ConfigError, loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
@@ -20,6 +19,7 @@ import { type ReportMeta, buildJsonReport } from './report/json.js';
 import { renderMarkdownReport } from './report/markdown.js';
 import { renderTerminalReport } from './report/terminal.js';
 import { type ReviewRunOutcome, runReview } from './review.js';
+import { addRule, deleteRule, editRule, listRules } from './rule-commands.js';
 import { RuleError } from './rules.js';
 import { type Severity, severities, severityRank } from './schema.js';
 import { TargetError, type TargetSpec, resolveRepoRoot } from './targets.js';
@@ -44,8 +44,14 @@ interface ReviewCliOptions {
   commit?: boolean;
 }
 
-function reviewCommand(name: string, description: string, isDefault = false): Command {
-  return program
+// The default command chain makes bare `agentlint` mean `review diff`:
+// the main verb of the tool must not require ceremony.
+const reviewCommand = program
+  .command('review', { isDefault: true })
+  .description('review a change (default command)');
+
+function reviewTarget(name: string, description: string, isDefault = false): Command {
+  return reviewCommand
     .command(name, { isDefault })
     .description(description)
     .option('--task <text>', 'what the change was supposed to do')
@@ -57,26 +63,26 @@ function reviewCommand(name: string, description: string, isDefault = false): Co
     .option('--report-md <path>', 'also write a Markdown report to this file');
 }
 
-reviewCommand('diff', 'review uncommitted working-tree changes (default)', true)
+reviewTarget('diff', 'review uncommitted working-tree changes (default)', true)
   .option('--fix', 'apply confirmed fixes with a separate fixer run, then re-review once')
   .option('--yes', 'with --fix: fix all blocking findings without prompting')
   .option('--commit', 'commit the working tree when the final review passes')
   .action((opts: ReviewCliOptions) => executeDiffFlow(opts));
 
-reviewCommand('staged', 'review staged changes only').action((opts: ReviewCliOptions) =>
+reviewTarget('staged', 'review staged changes only').action((opts: ReviewCliOptions) =>
   execute({ kind: 'staged' }, opts),
 );
 
-reviewCommand('commit', 'review a commit (default: HEAD)')
+reviewTarget('commit', 'review a commit (default: HEAD)')
   .argument('[ref]', 'commit to review', 'HEAD')
   .action((ref: string, opts: ReviewCliOptions) => execute({ kind: 'commit', ref }, opts));
 
-reviewCommand('range', 'review a commit range')
+reviewTarget('range', 'review a commit range')
   .argument('<range>', 'range in the form a..b')
   .action((range: string, opts: ReviewCliOptions) => execute({ kind: 'range', range }, opts));
 
-reviewCommand('snapshot', 'review the whole project as it is now').action(
-  (opts: ReviewCliOptions) => execute({ kind: 'snapshot' }, opts),
+reviewTarget('snapshot', 'review the whole project as it is now').action((opts: ReviewCliOptions) =>
+  execute({ kind: 'snapshot' }, opts),
 );
 
 program
@@ -98,7 +104,7 @@ program
         '',
         pc.bold('Next steps:'),
         '  npx agentlint                      review your uncommitted changes',
-        '  npx agentlint add-rule <text>      add a project rule in one sentence',
+        '  npx agentlint rule add <text>      add a project rule in one sentence',
         ...(opts.hook
           ? []
           : ['  npx agentlint init --hook          gate every commit via husky pre-commit']),
@@ -106,9 +112,23 @@ program
     );
   });
 
-program
-  .command('add-rule')
-  .description('generate a rule file from a plain-language description')
+const ruleCommand = program.command('rule').description('manage review rules');
+
+/** Project rules dir + the model for generation, or the global equivalents. */
+async function ruleTarget(global: boolean | undefined): Promise<{ dir: string; model: string }> {
+  if (global) {
+    return { dir: path.join(os.homedir(), '.agentlint', 'rules'), model: 'sonnet' };
+  }
+  const repoRoot = await resolveRepoRoot(process.cwd());
+  return {
+    dir: path.join(repoRoot, '.agentlint', 'rules'),
+    model: (await loadConfig(repoRoot)).models.standard,
+  };
+}
+
+ruleCommand
+  .command('add')
+  .description('generate a rule from a plain-language description')
   .argument('<description...>', 'what the rule should enforce, in any language')
   .option('--global', 'write to ~/.agentlint/rules instead of this project')
   .option('--severity <severity>', `force a severity: ${severities.join(' | ')}`)
@@ -118,31 +138,87 @@ program
       descriptionWords: string[],
       opts: { global?: boolean; severity?: string; name?: string },
     ) => {
-      const severity = parseSeverityOption(opts.severity, '--severity');
-      let targetDir: string;
-      let model = 'sonnet';
-      if (opts.global) {
-        targetDir = path.join(os.homedir(), '.agentlint', 'rules');
-      } else {
-        const repoRoot = await resolveRepoRoot(process.cwd());
-        targetDir = path.join(repoRoot, '.agentlint', 'rules');
-        model = (await loadConfig(repoRoot)).models.standard;
-      }
-
+      const target = await ruleTarget(opts.global);
       const rule = await addRule({
         engine: runClaude,
         description: descriptionWords.join(' '),
-        targetDir,
-        model,
-        severity,
+        targetDir: target.dir,
+        model: target.model,
+        severity: parseSeverityOption(opts.severity, '--severity'),
         name: opts.name,
         cwd: process.cwd(),
       });
-
       console.log(pc.green(`Created ${rule.file}`) + '\n');
       console.log(rule.content);
     },
   );
+
+ruleCommand
+  .command('edit')
+  .description('rewrite an existing rule per a plain-language instruction')
+  .argument('<slug>', 'rule file name without .md (see the error for available slugs)')
+  .argument('<instruction...>', 'what to change, in any language')
+  .option('--global', 'edit in ~/.agentlint/rules instead of this project')
+  .option('--severity <severity>', `force a severity: ${severities.join(' | ')}`)
+  .action(
+    async (
+      slug: string,
+      instructionWords: string[],
+      opts: { global?: boolean; severity?: string },
+    ) => {
+      const target = await ruleTarget(opts.global);
+      const rule = await editRule({
+        engine: runClaude,
+        slug,
+        instruction: instructionWords.join(' '),
+        targetDir: target.dir,
+        model: target.model,
+        severity: parseSeverityOption(opts.severity, '--severity'),
+        cwd: process.cwd(),
+      });
+      console.log(pc.green(`Updated ${rule.file}`) + '\n');
+      console.log(rule.content);
+    },
+  );
+
+ruleCommand
+  .command('list')
+  .description('list the rules a review of this project would use, in precedence order')
+  .action(async () => {
+    const repoRoot = await resolveRepoRoot(process.cwd());
+    const rules = await listRules(repoRoot);
+    if (rules.length === 0) {
+      console.log(pc.dim('No rules enabled. Try: agentlint init, or agentlint rule add <text>.'));
+      return;
+    }
+
+    const nameWidth = Math.max(...rules.map((r) => r.name.length));
+    const severityColor: Record<Severity, (s: string) => string> = {
+      blocker: pc.red,
+      warning: pc.yellow,
+      info: pc.cyan,
+    };
+    for (const rule of rules) {
+      const severity = rule.severity
+        ? severityColor[rule.severity](rule.severity.padEnd(7))
+        : pc.dim('-'.padEnd(7));
+      console.log(
+        `${pc.dim(rule.source.padEnd(7))}  ${rule.name.padEnd(nameWidth)}  ${severity}  ${rule.title}`,
+      );
+    }
+    console.log(pc.dim(`\n${rules.length} rules; later rules win when they conflict.`));
+  });
+
+ruleCommand
+  .command('delete')
+  .description('delete a rule file')
+  .argument('<slug>', 'rule file name without .md')
+  .option('--global', 'delete from ~/.agentlint/rules instead of this project')
+  .action(async (slug: string, opts: { global?: boolean }) => {
+    const target = await ruleTarget(opts.global);
+    const file = await deleteRule(target.dir, slug);
+    console.log(pc.green(`Deleted ${file}`));
+  });
 
 /**
  * Escape hatch for hooks (like HUSKY=0): a blocked commit sometimes must

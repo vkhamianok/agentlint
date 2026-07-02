@@ -60,13 +60,13 @@ agentlint --fix --commit         # fix confirmed findings, re-review, commit
 
 ## What it can review
 
-| Command                        | Reviews                                                        |
-| ------------------------------ | -------------------------------------------------------------- |
-| `agentlint` / `agentlint diff` | uncommitted working-tree changes (default)                     |
-| `agentlint staged`             | staged changes only (`git diff --cached`)                      |
-| `agentlint commit [ref]`       | a commit (default `HEAD`); its message becomes the task intent |
-| `agentlint range a..b`         | a commit range                                                 |
-| `agentlint snapshot`           | the whole project as it is now                                 |
+| Command                          | Reviews                                                        |
+| -------------------------------- | -------------------------------------------------------------- |
+| `agentlint` / `agentlint review` | uncommitted working-tree changes (default)                     |
+| `agentlint review staged`        | staged changes only (`git diff --cached`)                      |
+| `agentlint review commit [ref]`  | a commit (default `HEAD`); its message becomes the task intent |
+| `agentlint review range a..b`    | a commit range                                                 |
+| `agentlint review snapshot`      | the whole project as it is now                                 |
 
 Exit codes: `0` pass, `1` blocking findings, `2` error. Never a silent pass.
 
@@ -130,20 +130,25 @@ Note for rule files written against older versions: `applies` is no longer
 supported in frontmatter (a rule scopes itself better in prose), and any
 unknown frontmatter key is a loud error.
 
-### Generating rules
+### Managing rules
 
-You do not have to write rules by hand. Describe the rule in any language
-and agentlint writes it in the library's format — Flag, Do not flag, and
-Bad/Good examples included — checks it against the format contract, saves
-it, and prints the result for your review:
+You do not have to write rules by hand. Describe what you want in any
+language: agentlint writes the rule in the library's format — Flag, Do not
+flag, and Bad/Good examples included — checks it against the format
+contract, saves it, and prints the result for your review:
 
 ```sh
-agentlint add-rule all methods and functions must start with a verb
-agentlint add-rule --global --severity blocker никаких console.log в коде
+agentlint rule list      # every rule a review of this project would use
+agentlint rule add all methods and functions must start with a verb
+agentlint rule add --global --severity blocker никаких console.log в коде
+agentlint rule edit verb-function-names allow noun names for factories
+agentlint rule delete verb-function-names
 ```
 
-`--global` writes to `~/.agentlint/rules/` instead of the project;
-`--severity` and `--name` override what the generator picks.
+`--global` targets `~/.agentlint/rules/` instead of the project;
+`--severity` and `--name` override what the generator picks. Edits change
+only what the instruction asks and go through the same format check — a
+bad generation never destroys the existing file.
 
 ## Depth profiles
 
@@ -197,7 +202,7 @@ husky pre-commit:
 
 ```sh
 # .husky/pre-commit
-npx agentlint staged --depth quick
+npx agentlint review staged --depth quick
 ```
 
 This repository dogfoods the same gate, prefixed by its own checks and
@@ -205,13 +210,13 @@ using the locally built CLI instead of the published package — so every
 commit is reviewed by the exact code it contains, not by the last release:
 
 ```sh
-pnpm lint && pnpm typecheck && pnpm format:check && pnpm test && pnpm build && node dist/cli.js staged --depth quick
+pnpm lint && pnpm typecheck && pnpm format:check && pnpm test && pnpm build && node dist/cli.js review staged --depth quick
 ```
 
 GitHub Actions:
 
 ```yaml
-- run: npx agentlint range ${{ github.event.pull_request.base.sha }}..HEAD --report agentlint.json
+- run: npx agentlint review range ${{ github.event.pull_request.base.sha }}..HEAD --report agentlint.json
 ```
 
 Escape hatch when a blocked commit must land anyway:

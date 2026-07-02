@@ -19,7 +19,7 @@ describe('initProject', () => {
     const config = await readFile(path.join(repo, '.agentlint', 'config.json'), 'utf8');
     expect(JSON.parse(config).rules).toContain('library:root-cause');
     const readme = await readFile(path.join(repo, '.agentlint', 'rules', 'README.md'), 'utf8');
-    expect(readme).toContain('add-rule');
+    expect(readme).toContain('rule add');
   });
 
   it('is idempotent and never rewrites an existing config', async () => {
@@ -46,7 +46,7 @@ describe('initProject', () => {
     expect(second.find((s) => s.name.includes('pre-commit'))?.status).toBe('skipped');
 
     const hook = await readFile(path.join(repo, '.husky', 'pre-commit'), 'utf8');
-    expect(hook).toBe('pnpm test\nnpx agentlint staged --depth quick\n');
+    expect(hook).toBe('pnpm test\nnpx agentlint review staged --depth quick\n');
   });
 
   it('points at husky setup when there is no pre-commit hook', async () => {

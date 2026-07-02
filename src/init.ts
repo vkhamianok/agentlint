@@ -29,16 +29,18 @@ Every \`.md\` file in this directory is a review rule: it always loads, on
 top of whatever \`.agentlint/config.json\` enables, and wins over library
 and global rules when they conflict.
 
-Generate a rule from a plain-language description:
+Manage rules with plain-language commands:
 
 \`\`\`sh
-npx agentlint add-rule <describe what the rule should enforce>
+npx agentlint rule add <describe what the rule should enforce>
+npx agentlint rule edit <slug> <what to change>
+npx agentlint rule delete <slug>
 \`\`\`
 
 Format reference: https://github.com/vkhamianok/agentlint/tree/master/rules
 `;
 
-const HOOK_LINE = 'npx agentlint staged --depth quick';
+const HOOK_LINE = 'npx agentlint review staged --depth quick';
 
 /** Idempotent project setup; never overwrites what already exists. */
 export async function initProject(opts: {
@@ -103,12 +105,17 @@ async function wireHook(repoRoot: string): Promise<InitStep> {
   let current: string;
   try {
     current = await readFile(hookFile, 'utf8');
-  } catch {
-    return {
-      name: hookFile,
-      status: 'skipped',
-      detail: `no husky pre-commit hook found — set up husky, then add: ${HOOK_LINE}`,
-    };
+  } catch (err) {
+    // Only a missing hook means "husky is not set up"; anything else
+    // (permissions, a directory in the way) must not be misreported.
+    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return {
+        name: hookFile,
+        status: 'skipped',
+        detail: `no husky pre-commit hook found — set up husky, then add: ${HOOK_LINE}`,
+      };
+    }
+    throw err;
   }
 
   if (current.includes('agentlint')) {
