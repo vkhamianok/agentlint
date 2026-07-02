@@ -1,8 +1,11 @@
 {
-  "name": "agentlint",
+  "name": "@vkhamianok/agentlint",
   "version": "0.1.0",
   "description": "A semantic review gate for agent-written code, powered by the Claude CLI",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "agentlint": "dist/cli.js"
   },

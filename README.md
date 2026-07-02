@@ -36,10 +36,17 @@ quick  ·  19.0s  ·  $0.03
 
 ## Install
 
+The package is `@vkhamianok/agentlint`; the binary it installs is plain
+`agentlint`.
+
 ```sh
-npm install -g agentlint     # or: pnpm add -g agentlint
-# per project:
-npm install -D agentlint     # then use npx agentlint
+# globally, for every project on the machine
+npm install -g @vkhamianok/agentlint      # or: pnpm add -g @vkhamianok/agentlint
+agentlint --version
+
+# per project, shared with the team via package.json
+npm install -D @vkhamianok/agentlint      # or: pnpm add -D @vkhamianok/agentlint
+npx agentlint --version
 ```
 
 ## Quick start
@@ -191,7 +198,8 @@ npx agentlint staged --depth quick
 ```
 
 This repository dogfoods the same gate, prefixed by its own checks and
-using the locally built CLI instead of npx:
+using the locally built CLI instead of the published package — so every
+commit is reviewed by the exact code it contains, not by the last release:
 
 ```sh
 pnpm lint && pnpm typecheck && pnpm format:check && pnpm test && pnpm build && node dist/cli.js staged --depth quick

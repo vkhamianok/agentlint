@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import matter from 'gray-matter';
@@ -71,11 +71,16 @@ export async function addRule(opts: {
   assertRuleMarkdown(content, `generated rule "${name}"`);
 
   const file = path.join(opts.targetDir, `${name}.md`);
-  if (await exists(file)) {
-    throw new RuleError(`Rule file already exists: ${file}. Pick a different --name.`);
-  }
   await mkdir(opts.targetDir, { recursive: true });
-  await writeFile(file, content, 'utf8');
+  try {
+    // wx: create only — an existing file fails atomically, no check-then-write race.
+    await writeFile(file, content, { encoding: 'utf8', flag: 'wx' });
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new RuleError(`Rule file already exists: ${file}. Pick a different --name.`);
+    }
+    throw err;
+  }
 
   return { name, severity, content, file };
 }
@@ -97,13 +102,4 @@ async function buildGeneratorPrompt(
     `## Exemplar (structure and tone to imitate)\n\n\`\`\`\`markdown\n${exemplar}\n\`\`\`\``,
     'Call the StructuredOutput tool with: name (kebab-case, derived from the rule essence), severity, and body (the rule markdown WITHOUT frontmatter, starting with "# ").',
   ].join('\n\n');
-}
-
-async function exists(file: string): Promise<boolean> {
-  try {
-    await stat(file);
-    return true;
-  } catch {
-    return false;
-  }
 }
