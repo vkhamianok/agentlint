@@ -9,6 +9,8 @@ export type RunContext = 'manual' | 'hook' | 'ci';
 export interface DepthProfile {
   depth: Depth;
   model: string;
+  /** Built-in tools for the reviewer; empty = single-shot, diff only. */
+  tools: string[];
   maxTurns: number;
   maxBudgetUsd: number;
   timeoutMs: number;
@@ -21,6 +23,7 @@ export interface DepthProfile {
 }
 
 const QUICK_MAX_DIFF_KB = 64;
+const READ_TOOLS = ['Read', 'Grep', 'Glob'];
 
 const QUICK_FOCUS = `This is a fast pre-commit gate, not a full review. Focus exclusively on
 blockers: broken correctness and dishonesty (swallowed errors, deleted or
@@ -34,12 +37,16 @@ verified, so report everything real — but nothing you cannot defend.`;
 export function resolveProfile(depth: Depth, config: AgentlintConfig): DepthProfile {
   switch (depth) {
     case 'quick':
+      // No tools: every tool turn is a full API round trip, and a budget of
+      // them makes hook latency unpredictable. Quick reads the diff once and
+      // answers — measured at roughly half the time of the exploring variant.
       return {
         depth,
         model: config.models.quick,
-        maxTurns: 15,
+        tools: [],
+        maxTurns: 4,
         maxBudgetUsd: 0.3,
-        timeoutMs: 3 * 60 * 1000,
+        timeoutMs: config.timeoutMinutes.quick * 60 * 1000,
         maxDiffKb: Math.min(config.maxDiffKb, QUICK_MAX_DIFF_KB),
         promptFocus: QUICK_FOCUS,
         refute: false,
@@ -48,9 +55,10 @@ export function resolveProfile(depth: Depth, config: AgentlintConfig): DepthProf
       return {
         depth,
         model: config.models.standard,
+        tools: READ_TOOLS,
         maxTurns: 40,
         maxBudgetUsd: 1.5,
-        timeoutMs: 10 * 60 * 1000,
+        timeoutMs: config.timeoutMinutes.standard * 60 * 1000,
         maxDiffKb: config.maxDiffKb,
         refute: false,
       };
@@ -58,9 +66,10 @@ export function resolveProfile(depth: Depth, config: AgentlintConfig): DepthProf
       return {
         depth,
         model: config.models.deep,
+        tools: READ_TOOLS,
         maxTurns: 60,
         maxBudgetUsd: 4,
-        timeoutMs: 20 * 60 * 1000,
+        timeoutMs: config.timeoutMinutes.deep * 60 * 1000,
         maxDiffKb: config.maxDiffKb,
         promptFocus: DEEP_FOCUS,
         refute: true,

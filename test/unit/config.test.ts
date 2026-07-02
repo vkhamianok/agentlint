@@ -57,6 +57,15 @@ describe('loadConfig', () => {
     expect(config.depth).toEqual({ manual: 'standard', hook: 'deep', ci: 'deep' });
   });
 
+  it('merges timeoutMinutes per key', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(repo, { timeoutMinutes: { quick: 15 } });
+
+    const config = await loadConfig(repo, home);
+
+    expect(config.timeoutMinutes).toEqual({ quick: 15, standard: 10, deep: 20 });
+  });
+
   it('accepts rule selectors and inheritGlobalRules', async () => {
     const { home, repo } = await makeDirs();
     await writeConfig(repo, {

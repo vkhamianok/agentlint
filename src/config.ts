@@ -35,6 +35,13 @@ const configFileSchema = z.strictObject({
       ci: depthEnum.optional(),
     })
     .optional(),
+  timeoutMinutes: z
+    .strictObject({
+      quick: z.number().positive().optional(),
+      standard: z.number().positive().optional(),
+      deep: z.number().positive().optional(),
+    })
+    .optional(),
   ignore: z.array(z.string()).optional(),
   rules: z
     .array(
@@ -55,6 +62,8 @@ export interface AgentlintConfig {
   models: { quick: string; standard: string; deep: string };
   /** Default depth per run context; --depth overrides. */
   depth: { manual: Depth; hook: Depth; ci: Depth };
+  /** Hard wall-clock cap per review run, by profile. */
+  timeoutMinutes: { quick: number; standard: number; deep: number };
   /** Globs excluded from review. Setting this REPLACES the defaults. */
   ignore: string[];
   /**
@@ -71,6 +80,7 @@ export const DEFAULT_CONFIG: AgentlintConfig = {
   maxDiffKb: 200,
   models: { quick: 'haiku', standard: 'sonnet', deep: 'opus' },
   depth: { manual: 'standard', hook: 'quick', ci: 'deep' },
+  timeoutMinutes: { quick: 5, standard: 10, deep: 20 },
   inheritGlobalRules: true,
   ignore: [
     '**/node_modules/**',
@@ -108,6 +118,11 @@ function mergeConfig(acc: AgentlintConfig, file: ConfigFile): AgentlintConfig {
       manual: file.depth?.manual ?? acc.depth.manual,
       hook: file.depth?.hook ?? acc.depth.hook,
       ci: file.depth?.ci ?? acc.depth.ci,
+    },
+    timeoutMinutes: {
+      quick: file.timeoutMinutes?.quick ?? acc.timeoutMinutes.quick,
+      standard: file.timeoutMinutes?.standard ?? acc.timeoutMinutes.standard,
+      deep: file.timeoutMinutes?.deep ?? acc.timeoutMinutes.deep,
     },
     ignore: file.ignore ?? acc.ignore,
     rules: file.rules ?? acc.rules,

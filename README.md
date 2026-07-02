@@ -126,7 +126,7 @@ An LLM review costs time and money, so depth is budgeted per entry point:
 
 | Profile    | Default for      | Model (default) | Behavior                                                                            |
 | ---------- | ---------------- | --------------- | ----------------------------------------------------------------------------------- |
-| `quick`    | pre-commit hooks | haiku           | blockers only, 64 KB diff cap, ~20–40s                                              |
+| `quick`    | pre-commit hooks | haiku           | blockers only, diff-only single shot (no repo exploration), 64 KB cap, ~30–60s      |
 | `standard` | manual runs      | sonnet          | full principles + rules + code exploration                                          |
 | `deep`     | CI / on demand   | opus            | standard + an independent refutation pass per finding; refuted findings are dropped |
 
@@ -156,6 +156,7 @@ your answers are passed to the fixer as decisions.
   "maxDiffKb": 200,
   "models": { "quick": "haiku", "standard": "sonnet", "deep": "opus" },
   "depth": { "manual": "standard", "hook": "quick", "ci": "deep" },
+  "timeoutMinutes": { "quick": 5, "standard": 10, "deep": 20 },
   "ignore": ["**/node_modules/**", "**/dist/**", "**/pnpm-lock.yaml"]
 }
 ```

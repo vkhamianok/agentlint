@@ -4,13 +4,23 @@ import { DEFAULT_CONFIG } from '../../src/config.js';
 import { detectContext, resolveProfile } from '../../src/profiles.js';
 
 describe('resolveProfile', () => {
-  it('quick: cheap model, tight caps, blocker focus, no refutation', () => {
+  it('quick: cheap model, single-shot without tools, blocker focus', () => {
     const profile = resolveProfile('quick', DEFAULT_CONFIG);
     expect(profile.model).toBe('haiku');
+    expect(profile.tools).toEqual([]); // no exploration: hook latency must be predictable
+    expect(profile.maxTurns).toBeLessThanOrEqual(4);
     expect(profile.maxDiffKb).toBe(64); // tighter than the 200 KB config default
     expect(profile.promptFocus).toContain('pre-commit gate');
     expect(profile.refute).toBe(false);
     expect(profile.maxBudgetUsd).toBeLessThan(1);
+  });
+
+  it('takes timeouts from config.timeoutMinutes', () => {
+    expect(resolveProfile('quick', DEFAULT_CONFIG).timeoutMs).toBe(5 * 60 * 1000);
+    const custom = { ...DEFAULT_CONFIG, timeoutMinutes: { quick: 1, standard: 30, deep: 45 } };
+    expect(resolveProfile('quick', custom).timeoutMs).toBe(60 * 1000);
+    expect(resolveProfile('standard', custom).timeoutMs).toBe(30 * 60 * 1000);
+    expect(resolveProfile('deep', custom).timeoutMs).toBe(45 * 60 * 1000);
   });
 
   it('quick: never raises the cap above the configured one', () => {
@@ -18,9 +28,10 @@ describe('resolveProfile', () => {
     expect(profile.maxDiffKb).toBe(32);
   });
 
-  it('standard: config model and cap, no focus, no refutation', () => {
+  it('standard: config model and cap, read tools, no focus, no refutation', () => {
     const profile = resolveProfile('standard', DEFAULT_CONFIG);
     expect(profile.model).toBe('sonnet');
+    expect(profile.tools).toEqual(['Read', 'Grep', 'Glob']);
     expect(profile.maxDiffKb).toBe(200);
     expect(profile.promptFocus).toBeUndefined();
     expect(profile.refute).toBe(false);

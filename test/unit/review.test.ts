@@ -139,8 +139,9 @@ describe('runReview', () => {
     expect(outcome).toMatchObject({ kind: 'reviewed', depth: 'quick' });
     const call = engine.mock.calls[0]![0];
     expect(call.model).toBe('haiku');
-    expect(call.maxTurns).toBe(15);
+    expect(call.tools).toEqual([]); // quick is single-shot: no exploration turns
     expect(call.appendSystemPrompt).toContain('pre-commit gate');
+    expect(call.prompt).toContain('Judge on this evidence alone');
   });
 
   it('deep profile refutes findings and recomputes the verdict', async () => {

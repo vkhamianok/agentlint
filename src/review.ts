@@ -82,6 +82,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     rules,
     task: opts.task ?? changeSet.taskFallback,
     focus: profile.promptFocus,
+    canExplore: profile.tools.length > 0,
   });
 
   const envelope = await engine({
@@ -89,7 +90,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     appendSystemPrompt,
     cwd: repoRoot,
     jsonSchema: reviewResultJsonSchema,
-    tools: READ_TOOLS,
+    tools: profile.tools,
     model: profile.model,
     maxTurns: profile.maxTurns,
     maxBudgetUsd: profile.maxBudgetUsd,

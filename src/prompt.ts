@@ -1,8 +1,10 @@
 import type { Rule } from './rules.js';
 import type { ChangeSet } from './targets.js';
 
-const OUTPUT_CONTRACT = `Before reporting a finding, verify it against the actual code using your
-read tools. Report only findings you would defend in front of the author.
+const outputContract = (
+  canExplore: boolean,
+) => `Before reporting a finding, verify it against ${canExplore ? 'the actual code using your read tools' : 'the diff and file contents you were given'}.
+Report only findings you would defend in front of the author.
 Precision beats recall: a noisy reviewer gets disabled and helps no one.
 
 For every finding provide: what is wrong, why it matters, and one or two
@@ -28,6 +30,8 @@ export interface PromptContext {
   task?: string;
   /** Depth-profile instruction narrowing or widening the review. */
   focus?: string;
+  /** Whether the reviewer has read tools (quick runs on the diff alone). */
+  canExplore?: boolean;
 }
 
 export interface ReviewPrompt {
@@ -36,9 +40,12 @@ export interface ReviewPrompt {
 }
 
 export function buildReviewPrompt(ctx: PromptContext): ReviewPrompt {
+  const canExplore = ctx.canExplore ?? true;
   const sections: string[] = [
     `Review the following change: ${ctx.changeSet.description}.`,
-    'You are running inside the repository, so you can read any file for context.',
+    canExplore
+      ? 'You are running inside the repository, so you can read any file for context.'
+      : 'You see only the diff and file contents included below. Judge on this evidence alone and do not assume anything about files you cannot see.',
     renderTask(ctx.task),
   ];
 
@@ -51,7 +58,7 @@ export function buildReviewPrompt(ctx: PromptContext): ReviewPrompt {
   const systemParts = [ctx.principles];
   if (ctx.rules.length > 0) systemParts.push(renderRules(ctx.rules));
   if (ctx.focus) systemParts.push(`## Review focus\n\n${ctx.focus}`);
-  systemParts.push(OUTPUT_CONTRACT);
+  systemParts.push(outputContract(canExplore));
 
   return {
     prompt: sections.join('\n\n'),
