@@ -55,7 +55,7 @@ npx agentlint --version
 agentlint init                   # set up config + rules dir (add --hook for husky)
 agentlint                        # review uncommitted working-tree changes
 agentlint --task "Add pagination to the user list"   # review against intent
-agentlint --fix --commit         # fix confirmed findings, re-review, commit
+agentlint --fix                  # fix confirmed findings, then re-review once
 ```
 
 ## What it can review
@@ -126,9 +126,8 @@ config, and loads last — its rules win over the library and global ones.
 The `rules` key adds shipped and path-selected rules on top; global rules
 apply unless `"inheritGlobalRules": false`.
 
-Note for rule files written against older versions: `applies` is no longer
-supported in frontmatter (a rule scopes itself better in prose), and any
-unknown frontmatter key is a loud error.
+`severity` is the only frontmatter key a rule file may carry; any other
+key is a loud error.
 
 ### Managing rules
 
@@ -162,18 +161,21 @@ An LLM review costs time and money, so depth is budgeted per entry point:
 
 The context (manual TTY / hook / CI) picks the default; `--depth` overrides.
 
-## Fixing and committing
+## Fixing
 
 ```sh
 agentlint --fix            # confirm findings one by one, then a separate
                            # fixer run applies them and the tree is re-reviewed once
 agentlint --fix --yes      # fix all blocking findings without prompting
-agentlint --fix --commit   # ...and commit when the final review passes
 ```
 
 The reviewer and the fixer are separate Claude invocations: the reviewer
 never edits, the fixer never judges. If the reviewer left open questions,
 your answers are passed to the fixer as decisions.
+
+Committing is deliberately not agentlint's job: the gate judges, the
+caller acts. Exit code `0` is the signal that whoever invoked the review —
+you, a hook, a coding agent — may commit.
 
 ## Configuration
 
@@ -231,6 +233,17 @@ agentlint --report review.json --report-md review.md
 JSON reports are versioned (`"version": 1`) and carry the verdict, findings,
 depth, cost, and duration — the extension point for other tooling.
 
+## Design decisions
+
+| Decision                                     | Why                                                                                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Engine: the installed `claude` CLI, headless | No API key management — your existing subscription; one thin adapter owns the invocation.                                                        |
+| Every review is a fresh, independent process | The reviewer cannot inherit the writer's bias: fresh context by construction.                                                                    |
+| Rules are Markdown prose, not a DSL          | Rules are instructions to an LLM; prose is the native format, and tuning the wording is tuning the reviewer.                                     |
+| Findings are schema-validated JSON           | Machine-readable for the gate, renderable for the human; an engine failure is exit `2`, never a silent pass.                                     |
+| `--fix` exists, committing does not          | Applying findings is still the review domain (the eslint `--fix` precedent); the gate judges, the caller acts — exit `0` means "safe to commit". |
+| Cost is budgeted per depth profile           | An LLM is not a free linter: every profile caps diff size, turns, budget, and time.                                                              |
+
 ## How noise is kept down
 
 A review gate that cries wolf gets disabled within a week. agentlint:
@@ -251,5 +264,6 @@ AGENTLINT_E2E=1 pnpm vitest run test/e2e   # real CLI, costs money
 pnpm build
 ```
 
-See `docs/` for the problem statement, solution design, plan, and the
-verification of success criteria.
+See `docs/10-problem.md` for the problem statement this tool answers —
+its requirements, non-goals, and success criteria judge every scope
+decision.
