@@ -6,17 +6,20 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import pkg from '../package.json' with { type: 'json' };
+import { commitAll, generateCommitMessage } from './commit.js';
 import { ConfigError } from './config.js';
-import { ClaudeEngineError } from './engine/claude.js';
+import { ClaudeEngineError, runClaude } from './engine/claude.js';
+import { runFixes } from './fix.js';
 import { gateExitCode } from './gate.js';
+import { collectAnswers, confirmFindings } from './interactive.js';
 import { type Depth, depths, detectContext } from './profiles.js';
 import { type ReportMeta, buildJsonReport } from './report/json.js';
 import { renderMarkdownReport } from './report/markdown.js';
 import { renderTerminalReport } from './report/terminal.js';
 import { type ReviewRunOutcome, runReview } from './review.js';
 import { RuleError } from './rules.js';
-import { type Severity, severities } from './schema.js';
-import { TargetError, type TargetSpec } from './targets.js';
+import { type Severity, severities, severityRank } from './schema.js';
+import { TargetError, type TargetSpec, resolveRepoRoot } from './targets.js';
 
 const program = new Command();
 
@@ -33,6 +36,9 @@ interface ReviewCliOptions {
   nonInteractive?: boolean;
   report?: string;
   reportMd?: string;
+  fix?: boolean;
+  yes?: boolean;
+  commit?: boolean;
 }
 
 function reviewCommand(name: string, description: string, isDefault = false): Command {
@@ -48,9 +54,11 @@ function reviewCommand(name: string, description: string, isDefault = false): Co
     .option('--report-md <path>', 'also write a Markdown report to this file');
 }
 
-reviewCommand('diff', 'review uncommitted working-tree changes (default)', true).action(
-  (opts: ReviewCliOptions) => execute({ kind: 'working-tree' }, opts),
-);
+reviewCommand('diff', 'review uncommitted working-tree changes (default)', true)
+  .option('--fix', 'apply confirmed fixes with a separate fixer run, then re-review once')
+  .option('--yes', 'with --fix: fix all blocking findings without prompting')
+  .option('--commit', 'commit the working tree when the final review passes')
+  .action((opts: ReviewCliOptions) => executeDiffFlow(opts));
 
 reviewCommand('staged', 'review staged changes only').action((opts: ReviewCliOptions) =>
   execute({ kind: 'staged' }, opts),
@@ -67,6 +75,101 @@ reviewCommand('range', 'review a commit range')
 reviewCommand('snapshot', 'review the whole project as it is now').action(
   (opts: ReviewCliOptions) => execute({ kind: 'snapshot' }, opts),
 );
+
+/** The default-command flow: review → optional fix + re-review → optional commit. */
+async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
+  const target: TargetSpec = { kind: 'working-tree' };
+  const task = await resolveTask(opts);
+  const interactive = !opts.nonInteractive && Boolean(process.stdout.isTTY) && !process.env.CI;
+  // Static flag validation belongs before the first paid engine call.
+  if (opts.fix && !interactive && !opts.yes) {
+    throw new ConfigError('--fix in a non-interactive run requires --yes.');
+  }
+  const runOpts = {
+    cwd: process.cwd(),
+    target,
+    task,
+    failOn: parseFailOn(opts.failOn),
+    depth: parseDepth(opts.depth),
+    context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
+  };
+
+  let outcome = await runReview(runOpts);
+  if (outcome.kind === 'empty') {
+    console.log(pc.dim('Nothing to review.'));
+    process.exitCode = 0;
+    return;
+  }
+  renderOutcome(outcome);
+  let exitCode: number = gateExitCode(outcome.result, outcome.failOn);
+
+  if (exitCode !== 0 && opts.fix) {
+    const repoRoot = await resolveRepoRoot(process.cwd());
+    const answers = interactive ? await collectAnswers(outcome.result.questions) : [];
+    const threshold = severityRank(outcome.failOn);
+    const candidates = opts.yes
+      ? outcome.result.findings.filter((f) => severityRank(f.severity) >= threshold)
+      : outcome.result.findings;
+    const confirmed = await confirmFindings(candidates, opts.yes ?? false);
+
+    if (confirmed.length > 0) {
+      console.log(pc.bold(`\nFixing ${confirmed.length} finding(s)...`));
+      const fixResult = await runFixes({
+        engine: runClaude,
+        repoRoot,
+        findings: confirmed,
+        model: 'sonnet',
+        task,
+        answers,
+      });
+      console.log(`\n${fixResult.summary}\n`);
+      console.log(pc.bold('Re-reviewing the fixed working tree...'));
+
+      outcome = await runReview(runOpts);
+      if (outcome.kind === 'empty') {
+        // The fixer reverted the change entirely — nothing left to gate.
+        console.log(pc.dim('Nothing left to review after fixes.'));
+        process.exitCode = 0;
+        return;
+      }
+      renderOutcome(outcome);
+      exitCode = gateExitCode(outcome.result, outcome.failOn);
+    } else {
+      console.log(pc.dim('No findings confirmed; nothing to fix.'));
+    }
+  }
+
+  if (opts.commit) {
+    if (exitCode === 0) {
+      const repoRoot = await resolveRepoRoot(process.cwd());
+      const message = await generateCommitMessage({
+        engine: runClaude,
+        repoRoot,
+        model: 'haiku',
+        task,
+        reviewSummary: outcome.result.summary,
+      });
+      const hash = await commitAll(repoRoot, message);
+      console.log(pc.green(`Committed ${hash}: ${message.split('\n')[0]}`));
+    } else {
+      console.log(pc.dim('Not committing: the review did not pass.'));
+    }
+  }
+
+  await writeReports(outcome, opts);
+  process.exitCode = exitCode;
+}
+
+function renderOutcome(outcome: Extract<ReviewRunOutcome, { kind: 'reviewed' }>): void {
+  console.log(
+    renderTerminalReport(outcome.result, {
+      costUsd: outcome.costUsd,
+      durationMs: outcome.durationMs,
+      depth: outcome.depth,
+      refutedCount: outcome.refutedCount,
+    }),
+  );
+}
 
 async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void> {
   const outcome = await runReview({

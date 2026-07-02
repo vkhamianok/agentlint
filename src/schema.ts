@@ -46,7 +46,7 @@ export type ReviewResult = z.infer<typeof reviewResultSchema>;
  * silently fails to expose the StructuredOutput tool when it is present, and
  * the model falls back to prose answers.
  */
-function toCliJsonSchema(schema: z.ZodType): Record<string, unknown> {
+export function toCliJsonSchema(schema: z.ZodType): Record<string, unknown> {
   const json = z.toJSONSchema(schema) as Record<string, unknown>;
   delete json.$schema;
   return json;

@@ -12,6 +12,8 @@ import { ExecaError, execa } from 'execa';
  *                             MUST NOT contain a top-level $schema key: 2.1.198
  *                             then silently drops the StructuredOutput tool
  *   --tools <list>            restrict built-in tools ("" disables all)
+ *   --permission-mode <mode>  "acceptEdits" for fixer runs only (verified
+ *                             live in the M5 --fix flow); reviews never edit
  *   --append-system-prompt    principles + rules + output contract
  *   --model <alias>           per depth profile
  *   --max-budget-usd <n>      hard cost cap per run
@@ -26,6 +28,8 @@ export interface ClaudeRunOptions {
   jsonSchema?: object;
   /** Built-in tools to expose. Empty array = no tools at all. */
   tools?: string[];
+  /** e.g. "acceptEdits" for the fixer; reviews never set this. */
+  permissionMode?: string;
   model?: string;
   maxBudgetUsd?: number;
   maxTurns?: number;
@@ -66,6 +70,7 @@ export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope>
   const args = ['-p', '--output-format', 'json', '--no-session-persistence'];
   if (opts.jsonSchema) args.push('--json-schema', JSON.stringify(opts.jsonSchema));
   if (opts.tools) args.push('--tools', opts.tools.join(','));
+  if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
   if (opts.appendSystemPrompt) args.push('--append-system-prompt', opts.appendSystemPrompt);
   if (opts.model) args.push('--model', opts.model);
   if (opts.maxBudgetUsd !== undefined) args.push('--max-budget-usd', String(opts.maxBudgetUsd));
