@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "description": "A semantic review gate for agent-written code, powered by the Claude CLI",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vkhamianok/agentlint.git"
+  },
+  "homepage": "https://github.com/vkhamianok/agentlint#readme",
+  "bugs": "https://github.com/vkhamianok/agentlint/issues",
   "publishConfig": {
     "access": "public"
   },
