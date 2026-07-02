@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
+import type { Depth } from './profiles.js';
 import { type Severity, severities } from './schema.js';
 
 export class ConfigError extends Error {
@@ -12,6 +13,8 @@ export class ConfigError extends Error {
     this.name = 'ConfigError';
   }
 }
+
+const depthEnum = z.enum(['quick', 'standard', 'deep']);
 
 /** What a config file may contain — everything optional, unknown keys rejected. */
 const configFileSchema = z.strictObject({
@@ -24,6 +27,13 @@ const configFileSchema = z.strictObject({
       deep: z.string().optional(),
     })
     .optional(),
+  depth: z
+    .strictObject({
+      manual: depthEnum.optional(),
+      hook: depthEnum.optional(),
+      ci: depthEnum.optional(),
+    })
+    .optional(),
   ignore: z.array(z.string()).optional(),
 });
 
@@ -34,8 +44,10 @@ export interface AgentlintConfig {
   failOn: Severity;
   /** Hard cap on the size of the change sent for review. */
   maxDiffKb: number;
-  /** Model per depth profile (profiles land in M4; standard is used now). */
+  /** Model per depth profile. */
   models: { quick: string; standard: string; deep: string };
+  /** Default depth per run context; --depth overrides. */
+  depth: { manual: Depth; hook: Depth; ci: Depth };
   /** Globs excluded from review. Setting this REPLACES the defaults. */
   ignore: string[];
 }
@@ -44,6 +56,7 @@ export const DEFAULT_CONFIG: AgentlintConfig = {
   failOn: 'blocker',
   maxDiffKb: 200,
   models: { quick: 'haiku', standard: 'sonnet', deep: 'opus' },
+  depth: { manual: 'standard', hook: 'quick', ci: 'deep' },
   ignore: [
     '**/node_modules/**',
     '**/dist/**',
@@ -75,6 +88,11 @@ function mergeConfig(acc: AgentlintConfig, file: ConfigFile): AgentlintConfig {
       quick: file.models?.quick ?? acc.models.quick,
       standard: file.models?.standard ?? acc.models.standard,
       deep: file.models?.deep ?? acc.models.deep,
+    },
+    depth: {
+      manual: file.depth?.manual ?? acc.depth.manual,
+      hook: file.depth?.hook ?? acc.depth.hook,
+      ci: file.depth?.ci ?? acc.depth.ci,
     },
     ignore: file.ignore ?? acc.ignore,
   };

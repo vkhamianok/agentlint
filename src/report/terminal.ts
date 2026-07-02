@@ -5,6 +5,8 @@ import type { Finding, ReviewResult, Severity } from '../schema.js';
 export interface RunMeta {
   costUsd?: number;
   durationMs?: number;
+  depth?: string;
+  refutedCount?: number;
 }
 
 const severityLabel: Record<Severity, string> = {
@@ -40,7 +42,17 @@ export function renderTerminalReport(result: ReviewResult, meta: RunMeta = {}): 
     lines.push('');
   }
 
+  if (meta.refutedCount) {
+    lines.push(
+      pc.dim(
+        `${meta.refutedCount} finding${meta.refutedCount === 1 ? '' : 's'} refuted by independent verification and dropped.`,
+      ),
+      '',
+    );
+  }
+
   const metaParts: string[] = [];
+  if (meta.depth) metaParts.push(meta.depth);
   if (meta.durationMs !== undefined) metaParts.push(`${(meta.durationMs / 1000).toFixed(1)}s`);
   if (meta.costUsd !== undefined) metaParts.push(`$${meta.costUsd.toFixed(4)}`);
   if (metaParts.length > 0) lines.push(pc.dim(metaParts.join('  ·  ')));

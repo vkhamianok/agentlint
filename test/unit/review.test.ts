@@ -45,7 +45,7 @@ describe('runReview', () => {
 
     const outcome = await runReview({ cwd: repo, engine });
 
-    expect(outcome).toMatchObject({ kind: 'reviewed', costUsd: 0.12, durationMs: 3400 });
+    expect(outcome).toMatchObject({ kind: 'reviewed', costUsd: 0.12 });
     const call = engine.mock.calls[0]![0];
     expect(call.prompt).toContain('+export const hello = () => "changed";');
     expect(call.tools).toEqual(['Read', 'Grep', 'Glob']);
@@ -127,6 +127,123 @@ describe('runReview', () => {
     const call = engine.mock.calls[0]![0];
     expect(call.prompt).toContain('Switch the greeting to v2 for the beta.');
     expect(call.prompt).toContain('Judge the change against this intent');
+  });
+
+  it('picks the depth profile from context config and applies its settings', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
+    const engine = vi.fn().mockResolvedValue(envelope(cleanReview));
+
+    const outcome = await runReview({ cwd: repo, context: 'hook', engine });
+
+    expect(outcome).toMatchObject({ kind: 'reviewed', depth: 'quick' });
+    const call = engine.mock.calls[0]![0];
+    expect(call.model).toBe('haiku');
+    expect(call.maxTurns).toBe(15);
+    expect(call.appendSystemPrompt).toContain('pre-commit gate');
+  });
+
+  it('deep profile refutes findings and recomputes the verdict', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
+    const finding = (title: string) => ({
+      file: 'hello.js',
+      line: 1,
+      severity: 'blocker' as const,
+      title,
+      what: 'w',
+      why: 'y',
+      fixes: ['f'],
+      confidence: 'medium' as const,
+    });
+    const review = {
+      verdict: 'block',
+      summary: 'Two findings.',
+      findings: [finding('real bug'), finding('bogus claim')],
+      questions: [],
+    };
+    const engine = vi
+      .fn()
+      .mockResolvedValueOnce(envelope(review))
+      .mockResolvedValueOnce(envelope({ refuted: false, reason: 'verified, it is real' }))
+      .mockResolvedValueOnce(envelope({ refuted: true, reason: 'the claim misreads the code' }));
+
+    const outcome = await runReview({ cwd: repo, depth: 'deep', engine });
+
+    expect(outcome).toMatchObject({ kind: 'reviewed', refutedCount: 1 });
+    if (outcome.kind !== 'reviewed') throw new Error('unreachable');
+    expect(outcome.result.findings.map((f) => f.title)).toEqual(['real bug']);
+    expect(outcome.result.verdict).toBe('block'); // a blocker survived
+
+    const refuteCall = engine.mock.calls[1]![0];
+    expect(refuteCall.prompt).toContain('REFUTE');
+    expect(refuteCall.prompt).toContain('real bug');
+  });
+
+  it('keeps a finding and the whole review when a refutation call fails', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
+    const review = {
+      verdict: 'block',
+      summary: 'One finding.',
+      findings: [
+        {
+          file: 'hello.js',
+          line: 1,
+          severity: 'blocker',
+          title: 'real bug',
+          what: 'w',
+          why: 'y',
+          fixes: ['f'],
+          confidence: 'high',
+        },
+      ],
+      questions: [],
+    };
+    const engine = vi
+      .fn()
+      .mockResolvedValueOnce(envelope(review))
+      .mockRejectedValueOnce(new Error('refutation call timed out'));
+
+    const outcome = await runReview({ cwd: repo, depth: 'deep', engine });
+
+    if (outcome.kind !== 'reviewed') throw new Error('unreachable');
+    expect(outcome.result.findings.map((f) => f.title)).toEqual(['real bug']);
+    expect(outcome.result.verdict).toBe('block');
+    expect(outcome.refutedCount).toBe(0);
+  });
+
+  it('deep profile flips the verdict to pass when every finding is refuted', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
+    const review = {
+      verdict: 'block',
+      summary: 'One shaky finding.',
+      findings: [
+        {
+          file: 'hello.js',
+          line: 1,
+          severity: 'blocker',
+          title: 'bogus',
+          what: 'w',
+          why: 'y',
+          fixes: ['f'],
+          confidence: 'low',
+        },
+      ],
+      questions: [],
+    };
+    const engine = vi
+      .fn()
+      .mockResolvedValueOnce(envelope(review))
+      .mockResolvedValueOnce(envelope({ refuted: true, reason: 'not reproducible in the code' }));
+
+    const outcome = await runReview({ cwd: repo, depth: 'deep', engine });
+
+    if (outcome.kind !== 'reviewed') throw new Error('unreachable');
+    expect(outcome.result.verdict).toBe('pass');
+    expect(outcome.result.findings).toEqual([]);
+    expect(outcome.refutedCount).toBe(1);
   });
 
   it('salvages a prose-only answer with a cheap conversion call', async () => {

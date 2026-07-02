@@ -1,12 +1,17 @@
 import { loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
-import { buildReviewPrompt } from './prompt.js';
+import { type Depth, type DepthProfile, type RunContext, resolveProfile } from './profiles.js';
+import { buildRefutePrompt, buildReviewPrompt } from './prompt.js';
 import { loadPrinciples, loadRules } from './rules.js';
 import {
+  type Finding,
   type ReviewResult,
   type Severity,
+  refutationJsonSchema,
+  refutationSchema,
   reviewResultJsonSchema,
   reviewResultSchema,
+  severityRank,
 } from './schema.js';
 import {
   type ChangeSet,
@@ -26,6 +31,10 @@ export interface ReviewRunOptions {
   task?: string;
   /** CLI override for the blocking threshold. */
   failOn?: Severity;
+  /** CLI override for the depth profile. */
+  depth?: Depth;
+  /** Where the run happens; picks the default depth from config. */
+  context?: RunContext;
   /** Injectable for tests; defaults to the real claude CLI adapter. */
   engine?: EngineFn;
 }
@@ -38,27 +47,26 @@ export type ReviewRunOutcome =
       /** Final blocking threshold: CLI override or config. */
       failOn: Severity;
       target: string;
-      costUsd?: number;
-      durationMs?: number;
+      depth: Depth;
+      /** Findings dropped by the deep profile's refutation pass. */
+      refutedCount: number;
+      costUsd: number;
+      durationMs: number;
     };
 
-// M3 fixed settings; M4 turns these into depth profiles.
-const REVIEWER_SETTINGS = {
-  jsonSchema: reviewResultJsonSchema,
-  tools: ['Read', 'Grep', 'Glob'],
-  maxTurns: 40,
-  maxBudgetUsd: 1.5,
-  timeoutMs: 10 * 60 * 1000,
-};
+const READ_TOOLS = ['Read', 'Grep', 'Glob'];
 
 export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcome> {
+  const startedAt = Date.now();
   const repoRoot = await resolveRepoRoot(opts.cwd);
   const config = await loadConfig(repoRoot);
+  const depth = opts.depth ?? config.depth[opts.context ?? 'manual'];
+  const profile = resolveProfile(depth, config);
   const target: TargetSpec = opts.target ?? { kind: 'working-tree' };
 
   const changeSet = await resolveTarget(repoRoot, target, config.ignore);
   if (isEmpty(changeSet)) return { kind: 'empty' };
-  enforceSizeCap(changeSet, config.maxDiffKb);
+  enforceSizeCap(changeSet, profile);
 
   const engine = opts.engine ?? runClaude;
   const [principles, rules] = await Promise.all([loadPrinciples(), loadRules(repoRoot)]);
@@ -67,19 +75,23 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     principles,
     rules,
     task: opts.task ?? changeSet.taskFallback,
+    focus: profile.promptFocus,
   });
 
   const envelope = await engine({
     prompt,
     appendSystemPrompt,
     cwd: repoRoot,
-    model: config.models.standard,
-    ...REVIEWER_SETTINGS,
+    jsonSchema: reviewResultJsonSchema,
+    tools: READ_TOOLS,
+    model: profile.model,
+    maxTurns: profile.maxTurns,
+    maxBudgetUsd: profile.maxBudgetUsd,
+    timeoutMs: profile.timeoutMs,
   });
 
   let structured = envelope.structured_output;
   let costUsd = envelope.total_cost_usd ?? 0;
-  let durationMs = envelope.duration_ms ?? 0;
 
   // --json-schema is best-effort: the model can still answer in prose
   // (stop_reason end_turn, no structured_output). Salvage the review with a
@@ -101,7 +113,6 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     });
     structured = converted.structured_output ?? extractJson(converted.result);
     costUsd += converted.total_cost_usd ?? 0;
-    durationMs += converted.duration_ms ?? 0;
   }
 
   // The schema was enforced CLI-side; this parse is a local guard against
@@ -115,13 +126,83 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     );
   }
 
+  let result = parsed.data;
+  let refutedCount = 0;
+  if (profile.refute && result.findings.length > 0) {
+    const refutation = await refuteFindings(engine, repoRoot, profile, changeSet, result.findings);
+    refutedCount = result.findings.length - refutation.kept.length;
+    costUsd += refutation.costUsd;
+    result = {
+      ...result,
+      findings: refutation.kept,
+      // The verdict must track the surviving findings, or a fully-refuted
+      // review would still block on the original "block".
+      verdict: refutation.kept.some((f) => f.severity === 'blocker') ? 'block' : 'pass',
+    };
+  }
+
   return {
     kind: 'reviewed',
-    result: parsed.data,
+    result,
     failOn: opts.failOn ?? config.failOn,
     target: changeSet.description,
+    depth,
+    refutedCount,
     costUsd,
-    durationMs,
+    durationMs: Date.now() - startedAt,
+  };
+}
+
+/**
+ * Caps the refutation pass: total spend and concurrent claude processes must
+ * not scale unboundedly with finding count. Blockers are verified first (they
+ * gate the commit); findings past the cap are kept un-refuted, matching the
+ * "never drop a finding on failure" rule.
+ */
+const MAX_REFUTATIONS = 8;
+
+async function refuteFindings(
+  engine: EngineFn,
+  repoRoot: string,
+  profile: DepthProfile,
+  changeSet: ChangeSet,
+  findings: Finding[],
+): Promise<{ kept: Finding[]; costUsd: number }> {
+  const byPriority = [...findings.keys()].sort(
+    (a, b) => severityRank(findings[b]!.severity) - severityRank(findings[a]!.severity),
+  );
+  const toRefute = new Set(byPriority.slice(0, MAX_REFUTATIONS));
+
+  const verdicts = await Promise.all(
+    findings.map(async (finding, index) => {
+      if (!toRefute.has(index)) return { refuted: false, costUsd: 0 };
+      // A failed or unparseable refutation must never drop a finding, and
+      // must never sink the whole (already paid for) review.
+      try {
+        const envelope = await engine({
+          prompt: buildRefutePrompt(JSON.stringify(finding, null, 2), changeSet),
+          cwd: repoRoot,
+          jsonSchema: refutationJsonSchema,
+          tools: READ_TOOLS,
+          model: profile.model,
+          maxTurns: 15,
+          maxBudgetUsd: 0.5,
+          timeoutMs: 5 * 60 * 1000,
+        });
+        const parsed = refutationSchema.safeParse(envelope.structured_output);
+        return {
+          refuted: parsed.success ? parsed.data.refuted : false,
+          costUsd: envelope.total_cost_usd ?? 0,
+        };
+      } catch {
+        return { refuted: false, costUsd: 0 };
+      }
+    }),
+  );
+
+  return {
+    kept: findings.filter((_, i) => !verdicts[i]!.refuted),
+    costUsd: verdicts.reduce((sum, v) => sum + v.costUsd, 0),
   };
 }
 
@@ -130,14 +211,17 @@ function isEmpty(changeSet: ChangeSet): boolean {
   return !changeSet.diff.trim() && changeSet.newFiles.length === 0;
 }
 
-function enforceSizeCap(changeSet: ChangeSet, maxDiffKb: number): void {
+function enforceSizeCap(changeSet: ChangeSet, profile: DepthProfile): void {
   const bytes =
     Buffer.byteLength(changeSet.diff) +
     changeSet.newFiles.reduce((sum, f) => sum + Buffer.byteLength(f.content), 0);
-  if (bytes > maxDiffKb * 1024) {
+  if (bytes > profile.maxDiffKb * 1024) {
+    const hint =
+      profile.depth === 'quick'
+        ? 'Run with --depth standard for large changes, or review a smaller change.'
+        : 'Review a smaller change, add ignore globs, or raise maxDiffKb in .agentlint/config.json.';
     throw new TargetError(
-      `The change is ~${Math.round(bytes / 1024)} KB, over the ${maxDiffKb} KB cap. ` +
-        'Review a smaller change, add ignore globs, or raise maxDiffKb in .agentlint/config.json.',
+      `The change is ~${Math.round(bytes / 1024)} KB, over the ${profile.maxDiffKb} KB cap of the ${profile.depth} profile. ${hint}`,
     );
   }
 }

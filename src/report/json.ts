@@ -2,6 +2,8 @@ import type { ReviewResult } from '../schema.js';
 
 export interface ReportMeta {
   target: string;
+  depth?: string;
+  refutedCount?: number;
   costUsd?: number;
   durationMs?: number;
 }
@@ -17,6 +19,8 @@ export function buildJsonReport(result: ReviewResult, meta: ReportMeta): object 
     summary: result.summary,
     findings: result.findings,
     questions: result.questions,
+    depth: meta.depth,
+    refutedCount: meta.refutedCount,
     costUsd: meta.costUsd,
     durationMs: meta.durationMs,
   };

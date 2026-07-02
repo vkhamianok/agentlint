@@ -40,17 +40,29 @@ export type Finding = z.infer<typeof findingSchema>;
 export type ReviewResult = z.infer<typeof reviewResultSchema>;
 
 /**
- * JSON Schema handed to the claude CLI via --json-schema.
+ * Converts a zod schema into JSON Schema for the claude CLI's --json-schema.
  *
  * The top-level `$schema` key zod emits must be stripped: Claude Code 2.1.198
  * silently fails to expose the StructuredOutput tool when it is present, and
- * the reviewer falls back to prose answers.
+ * the model falls back to prose answers.
  */
-export const reviewResultJsonSchema: Record<string, unknown> = (() => {
-  const schema = z.toJSONSchema(reviewResultSchema) as Record<string, unknown>;
-  delete schema.$schema;
-  return schema;
-})();
+function toCliJsonSchema(schema: z.ZodType): Record<string, unknown> {
+  const json = z.toJSONSchema(schema) as Record<string, unknown>;
+  delete json.$schema;
+  return json;
+}
+
+export const reviewResultJsonSchema = toCliJsonSchema(reviewResultSchema);
+
+/** Verdict of one refutation call in the deep profile's verification pass. */
+export const refutationSchema = z.looseObject({
+  refuted: z.boolean().describe('true if the finding is wrong, exaggerated, or unverifiable'),
+  reason: z.string().describe('one or two sentences justifying the verdict'),
+});
+
+export type Refutation = z.infer<typeof refutationSchema>;
+
+export const refutationJsonSchema = toCliJsonSchema(refutationSchema);
 
 export function severityRank(s: Severity): number {
   return severities.indexOf(s);

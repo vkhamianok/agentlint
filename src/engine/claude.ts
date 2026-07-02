@@ -115,6 +115,12 @@ async function spawnClaude(args: string[], opts: ClaudeRunOptions): Promise<stri
     );
   }
 
+  if (result instanceof Error && result.timedOut) {
+    throw new ClaudeEngineError(
+      `The Claude CLI run timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s. ` +
+        'Try a deeper profile (--depth standard) or a smaller change.',
+    );
+  }
   if (result instanceof Error && result.exitCode === undefined) {
     throw new ClaudeEngineError(
       `Could not run the Claude CLI ("${bin}"). Is Claude Code installed and on PATH?`,

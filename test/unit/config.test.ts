@@ -48,6 +48,15 @@ describe('loadConfig', () => {
     expect(config.models).toEqual({ quick: 'haiku', standard: 'opus', deep: 'opus' });
   });
 
+  it('merges depth per key instead of replacing the object', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(repo, { depth: { hook: 'deep' } });
+
+    const config = await loadConfig(repo, home);
+
+    expect(config.depth).toEqual({ manual: 'standard', hook: 'deep', ci: 'deep' });
+  });
+
   it('fails loudly on unknown keys', async () => {
     const { home, repo } = await makeDirs();
     await writeConfig(repo, { failsOn: 'blocker' });

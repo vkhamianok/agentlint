@@ -9,6 +9,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { ConfigError } from './config.js';
 import { ClaudeEngineError } from './engine/claude.js';
 import { gateExitCode } from './gate.js';
+import { type Depth, depths, detectContext } from './profiles.js';
 import { type ReportMeta, buildJsonReport } from './report/json.js';
 import { renderMarkdownReport } from './report/markdown.js';
 import { renderTerminalReport } from './report/terminal.js';
@@ -28,6 +29,8 @@ interface ReviewCliOptions {
   task?: string;
   taskFile?: string;
   failOn?: string;
+  depth?: string;
+  nonInteractive?: boolean;
   report?: string;
   reportMd?: string;
 }
@@ -39,6 +42,8 @@ function reviewCommand(name: string, description: string, isDefault = false): Co
     .option('--task <text>', 'what the change was supposed to do')
     .option('--task-file <path>', 'read the task description from a file')
     .option('--fail-on <severity>', `severity that blocks: ${severities.join(' | ')}`)
+    .option('--depth <depth>', `review depth: ${depths.join(' | ')} (default: by context)`)
+    .option('--non-interactive', 'never prompt; behave like a hook/CI run')
     .option('--report <path>', 'also write a JSON report to this file')
     .option('--report-md <path>', 'also write a Markdown report to this file');
 }
@@ -69,6 +74,8 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
     target,
     task: await resolveTask(opts),
     failOn: parseFailOn(opts.failOn),
+    depth: parseDepth(opts.depth),
+    context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
   });
 
   if (outcome.kind === 'empty') {
@@ -81,10 +88,18 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
     renderTerminalReport(outcome.result, {
       costUsd: outcome.costUsd,
       durationMs: outcome.durationMs,
+      depth: outcome.depth,
+      refutedCount: outcome.refutedCount,
     }),
   );
   await writeReports(outcome, opts);
   process.exitCode = gateExitCode(outcome.result, outcome.failOn);
+}
+
+function parseDepth(value: string | undefined): Depth | undefined {
+  if (value === undefined) return undefined;
+  if ((depths as readonly string[]).includes(value)) return value as Depth;
+  throw new ConfigError(`Invalid --depth "${value}". Valid: ${depths.join(', ')}.`);
 }
 
 async function resolveTask(opts: ReviewCliOptions): Promise<string | undefined> {
@@ -108,6 +123,8 @@ async function writeReports(
   if (!opts.report && !opts.reportMd) return;
   const meta: ReportMeta = {
     target: outcome.target,
+    depth: outcome.depth,
+    refutedCount: outcome.refutedCount,
     costUsd: outcome.costUsd,
     durationMs: outcome.durationMs,
   };

@@ -32,7 +32,13 @@ const result: ReviewResult = {
   questions: ['Should pagination be 0- or 1-based?'],
 };
 
-const meta = { target: 'commit HEAD', costUsd: 0.12, durationMs: 34_000 };
+const meta = {
+  target: 'commit HEAD',
+  depth: 'deep',
+  refutedCount: 2,
+  costUsd: 0.12,
+  durationMs: 34_000,
+};
 
 describe('markdown report', () => {
   it('renders verdict, grouped findings, fixes, questions, and meta', () => {
@@ -49,6 +55,13 @@ describe('markdown report', () => {
     expect(md).toContain('## Questions');
     expect(md).toContain('$0.1200');
   });
+
+  it('shows the depth badge and the refuted-findings note', () => {
+    const md = renderMarkdownReport(result, meta);
+
+    expect(md).toContain('2 finding(s) refuted by independent verification');
+    expect(md).toContain('_deep · 34.0s · $0.1200_');
+  });
 });
 
 describe('json report', () => {
@@ -59,6 +72,8 @@ describe('json report', () => {
     expect(report.verdict).toBe('block');
     expect(report.findings).toHaveLength(2);
     expect(report.target).toBe('commit HEAD');
+    expect(report.depth).toBe('deep');
+    expect(report.refutedCount).toBe(2);
     expect(report.costUsd).toBe(0.12);
     expect(typeof report.generatedAt).toBe('string');
   });
