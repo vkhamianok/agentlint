@@ -1,0 +1,52 @@
+{
+  "name": "agentlint",
+  "version": "0.1.0",
+  "description": "A semantic review gate for agent-written code, powered by the Claude CLI",
+  "type": "module",
+  "bin": {
+    "agentlint": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "prompts"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.19.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^15.0.0",
+    "execa": "^9.6.1",
+    "gray-matter": "^4.0.3",
+    "picocolors": "^1.1.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@trivago/prettier-plugin-sort-imports": "^6.0.2",
+    "@types/node": "^26.1.0",
+    "eslint": "^10.6.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.9.4",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.1",
+    "vitest": "^4.1.9"
+  }
+}
