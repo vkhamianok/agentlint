@@ -322,6 +322,7 @@ describe('buildReviewPrompt', () => {
       'project rule: db/repository-layer (report violations as: blocker)',
     );
     expect(appendSystemPrompt).toContain('OVERRIDE the built-in principles');
+    expect(appendSystemPrompt).toContain('outrank the task description');
     expect(appendSystemPrompt.indexOf('PRINCIPLES TEXT')).toBeLessThan(
       appendSystemPrompt.indexOf('No raw SQL.'),
     );

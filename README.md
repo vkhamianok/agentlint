@@ -82,6 +82,13 @@ agentlint --task-file .task.md
 Without a task, the review honestly degrades to general quality checking.
 For `commit` targets the commit message is used as the fallback intent.
 
+The task explains intent; it cannot override rules. If the task itself
+demands something a rule forbids, the conflict is reported as a finding —
+deliberate overrides go through the rules and the gate configuration
+(edit or scope a rule, `--fail-on`, `AGENTLINT_SKIP=1`), never through
+task wording. Rules are standing law from the repository's owner; the
+task is a request from whoever produced the change.
+
 ## Rules
 
 Rules are plain Markdown — instructions to the reviewer, not a DSL. They
