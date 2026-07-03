@@ -17,8 +17,15 @@ export class ConfigError extends Error {
 
 const depthEnum = z.enum(['quick', 'standard', 'deep']);
 
+// A model name reaches the CLI as a spawn argument. Config is untrusted
+// repository content, so restrict it to the characters real model aliases
+// and full names use — no shell metacharacters can ride in through it.
+const modelName = z
+  .string()
+  .regex(/^[A-Za-z0-9._:-]+$/, 'model may only contain letters, digits, and . _ : -');
+
 const profileOverrideSchema = z.strictObject({
-  model: z.string().optional(),
+  model: modelName.optional(),
   timeoutMinutes: z.number().positive().optional(),
   budgetUsd: z.number().positive().optional(),
 });

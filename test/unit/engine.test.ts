@@ -48,6 +48,22 @@ describe('engine adapter', () => {
     expect(existsSync(capturedArgs[fileIndex]!)).toBe(false); // cleaned up after the run
   });
 
+  it('never spawns through a shell (args would be joined unescaped)', async () => {
+    let capturedOptions: Record<string, unknown> = {};
+    vi.mocked(execa).mockImplementationOnce(((_bin: string, _args: string[], options: object) => {
+      capturedOptions = options as Record<string, unknown>;
+      return Promise.resolve({
+        exitCode: 0,
+        stdout: JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '' }),
+        stderr: '',
+      });
+    }) as never);
+
+    await runClaude({ prompt: 'x', model: 'sonnet' });
+
+    expect(capturedOptions.shell).toBeUndefined();
+  });
+
   it('reports a timeout honestly instead of "is claude installed?"', async () => {
     const timeoutError = Object.assign(new Error('spawn timed out'), { timedOut: true });
     vi.mocked(execa).mockRejectedValueOnce(timeoutError as never);

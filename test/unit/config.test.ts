@@ -77,6 +77,13 @@ describe('loadConfig', () => {
     expect(config.inheritGlobalRules).toBe(false);
   });
 
+  it('rejects a model name carrying shell metacharacters', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(repo, { profiles: { standard: { model: 'sonnet & calc.exe' } } });
+
+    await expect(loadConfig(repo, home)).rejects.toThrow(ConfigError);
+  });
+
   it('fails loudly on unknown keys', async () => {
     const { home, repo } = await makeDirs();
     await writeConfig(repo, { failsOn: 'blocker' });

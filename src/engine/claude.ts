@@ -124,26 +124,17 @@ export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope>
 
 async function spawnClaude(args: string[], opts: ClaudeRunOptions): Promise<string> {
   const bin = claudeBinary();
-  const execaOpts = {
+  // Always spawn with the args as a real array, never through a shell:
+  // shell mode joins them into one unescaped string, which would let a
+  // repo's own config (e.g. a crafted model name) inject shell commands —
+  // in a tool whose whole job is running untrusted code. execa 9 spawns
+  // npm .cmd shims on Windows directly, so no shell fallback is needed.
+  const result = await execa(bin, args, {
     input: opts.prompt,
     cwd: opts.cwd,
     timeout: opts.timeoutMs,
     reject: false as const,
-  };
-  let result = await execa(bin, args, execaOpts).catch((e: unknown) => e as ExecaError);
-
-  // npm-installed claude is a .cmd shim on Windows; Node refuses to spawn
-  // those directly (EINVAL). Retry once through a shell.
-  if (
-    result instanceof Error &&
-    'code' in result &&
-    result.code === 'EINVAL' &&
-    process.platform === 'win32'
-  ) {
-    result = await execa(bin, args, { ...execaOpts, shell: true }).catch(
-      (e: unknown) => e as ExecaError,
-    );
-  }
+  }).catch((e: unknown) => e as ExecaError);
 
   if (result instanceof Error && result.timedOut) {
     throw new ClaudeEngineError(
