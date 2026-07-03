@@ -136,6 +136,79 @@ export async function deleteRule(targetDir: string, slug: string): Promise<strin
   return file;
 }
 
+const ruleCheckSchema = z.looseObject({
+  summary: z.string().describe('one paragraph on the overall health of the rule set'),
+  findings: z.array(
+    z.looseObject({
+      rules: z.array(z.string()).min(1).describe('the rule names involved'),
+      kind: z.enum(['contradiction', 'duplication', 'vagueness', 'noise-risk', 'improvement']),
+      problem: z.string().describe('what is wrong with these rules, concretely'),
+      recommendation: z.string().describe('a concrete rewording or restructuring to apply'),
+    }),
+  ),
+});
+
+const ruleCheckJsonSchema = toCliJsonSchema(ruleCheckSchema);
+
+export type RuleCheckResult = z.infer<typeof ruleCheckSchema>;
+
+/**
+ * A meta-review of the effective rule set: rules are prompts, and prompts
+ * can contradict, duplicate, or blur each other without anyone noticing.
+ */
+export async function checkRules(opts: {
+  engine: EngineFn;
+  repoRoot: string;
+  model: string;
+  homeDir?: string;
+}): Promise<RuleCheckResult> {
+  const listing = await listRules(opts.repoRoot, opts.homeDir);
+  if (listing.length === 0) {
+    throw new RuleError('No rules are enabled — nothing to check. Try: agentlint init.');
+  }
+  const config = await loadConfig(opts.repoRoot, opts.homeDir);
+  const rules = await loadRules(opts.repoRoot, {
+    selectors: config.rules,
+    inheritGlobalRules: config.inheritGlobalRules,
+    homeDir: opts.homeDir,
+  });
+
+  const rendered = rules
+    .map(
+      (r) =>
+        `### ${r.source} rule: ${r.name}${r.severity ? ` (severity: ${r.severity})` : ''}\n\n${r.body}`,
+    )
+    .join('\n\n---\n\n');
+
+  const envelope = await opts.engine({
+    prompt: [
+      'You are auditing the rule set of an LLM code reviewer. Each rule below is a prompt the reviewer follows. Precedence semantics: later rules win over earlier ones, and all of them override the built-in principles — so a later rule deliberately narrowing an earlier one is legitimate; flag only conflicts that look unintentional.',
+      'Report, with concrete rewordings:',
+      '- contradictions: two rules demand incompatible behavior and nothing signals intent;',
+      '- duplication: the same law stated twice (the copies will drift apart);',
+      '- vagueness: a rule a reviewer cannot falsify — no concrete triggers, taste words ("clean", "good") without criteria;',
+      '- noise risk: categorical wording that will flag legitimate code, or a missing "Do not flag" section where borderline cases are obvious;',
+      '- improvement: sharper wording, missing Bad/Good examples where they would change behavior.',
+      'Only report what the rule owner should act on. An empty findings list is a valid answer for a healthy set.',
+      `## The rule set (${rules.length} rules, in precedence order)\n\n${rendered}`,
+      'Call the StructuredOutput tool with your audit. Do not end with a prose answer.',
+    ].join('\n\n'),
+    jsonSchema: ruleCheckJsonSchema,
+    tools: [],
+    model: opts.model,
+    maxTurns: 4,
+    maxBudgetUsd: 1,
+    timeoutMs: 5 * 60 * 1000,
+    cwd: opts.repoRoot,
+  });
+
+  const parsed = ruleCheckSchema.safeParse(envelope.structured_output);
+  if (!parsed.success) {
+    throw new RuleError(`The rule audit did not return a valid result: ${parsed.error.message}`);
+  }
+  return parsed.data;
+}
+
 export interface RuleListing {
   source: Rule['source'];
   name: string;

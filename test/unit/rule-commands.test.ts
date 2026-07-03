@@ -228,6 +228,58 @@ describe('addRule', () => {
     ]);
   });
 
+  it('audits the effective rule set with precedence semantics in the prompt', async () => {
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    const repo = await makeTarget();
+    await mkdir(path.join(repo, '.agentlint', 'rules'), { recursive: true });
+    await writeFile(
+      path.join(repo, '.agentlint', 'config.json'),
+      '{ "rules": ["library:naming/self-descriptive-names"], "inheritGlobalRules": false }',
+    );
+    await writeFile(
+      path.join(repo, '.agentlint', 'rules', 'local-law.md'),
+      '---\nseverity: blocker\n---\n\n# Local law\n\nNever use vague names.',
+    );
+    const audit = {
+      summary: 'Mostly healthy.',
+      findings: [
+        {
+          rules: ['naming/self-descriptive-names', 'local-law'],
+          kind: 'duplication',
+          problem: 'Both forbid vague names.',
+          recommendation: 'Fold local-law into the library rule or scope it.',
+        },
+      ],
+    };
+    const { checkRules } = await import('../../src/rule-commands.js');
+    const engine = vi.fn().mockResolvedValue(envelope(audit));
+
+    const result = await checkRules({
+      engine,
+      repoRoot: repo,
+      model: 'sonnet',
+      homeDir: path.join(repo, 'no-home'),
+    });
+
+    expect(result.findings[0]).toMatchObject({ kind: 'duplication' });
+    const call = engine.mock.calls[0]![0];
+    expect(call.tools).toEqual([]);
+    expect(call.prompt).toContain('later rules win');
+    expect(call.prompt).toContain('naming/self-descriptive-names');
+    expect(call.prompt).toContain('Never use vague names.');
+  });
+
+  it('refuses to audit an empty rule set without spending money', async () => {
+    const repo = await makeTarget();
+    const { checkRules } = await import('../../src/rule-commands.js');
+    const engine = vi.fn();
+
+    await expect(
+      checkRules({ engine, repoRoot: repo, model: 'sonnet', homeDir: path.join(repo, 'nh') }),
+    ).rejects.toThrow(/nothing to check/);
+    expect(engine).not.toHaveBeenCalled();
+  });
+
   it('rejects a non-kebab-case --name before spending money', async () => {
     const targetDir = await makeTarget();
     const engine = vi.fn();

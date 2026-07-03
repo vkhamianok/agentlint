@@ -149,7 +149,14 @@ agentlint rule add all methods and functions must start with a verb
 agentlint rule add --global --severity blocker никаких console.log в коде
 agentlint rule edit verb-function-names allow noun names for factories
 agentlint rule delete verb-function-names
+agentlint rule check     # audit the set: contradictions, duplication, noise risks
 ```
+
+Rules are prompts, and prompts can contradict, duplicate, or blur each
+other without anyone noticing. `rule check` reads the whole effective set
+and reports unintentional conflicts, duplicated laws that will drift
+apart, wording a reviewer cannot falsify, and noise risks — each with a
+concrete rewording to apply.
 
 `--global` targets `~/.agentlint/rules/` instead of the project;
 `--severity` and `--name` override what the generator picks. Edits change

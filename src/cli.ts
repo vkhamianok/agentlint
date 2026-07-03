@@ -18,7 +18,7 @@ import { type ReportMeta, buildJsonReport } from './report/json.js';
 import { renderMarkdownReport } from './report/markdown.js';
 import { renderTerminalReport } from './report/terminal.js';
 import { type ReviewRunOutcome, runReview } from './review.js';
-import { addRule, deleteRule, editRule, listRules } from './rule-commands.js';
+import { addRule, checkRules, deleteRule, editRule, listRules } from './rule-commands.js';
 import { RuleError } from './rules.js';
 import { type Severity, severities, severityRank } from './schema.js';
 import { TargetError, type TargetSpec, resolveRepoRoot } from './targets.js';
@@ -234,6 +234,35 @@ ruleCommand
       );
     }
     console.log(pc.dim(`\n${rules.length} rules; later rules win when they conflict.`));
+  });
+
+ruleCommand
+  .command('check')
+  .description('audit the rule set for contradictions, duplication, vagueness, and noise risks')
+  .action(async () => {
+    const repoRoot = await resolveRepoRoot(process.cwd());
+    const model = (await loadConfig(repoRoot)).profiles.standard.model;
+    const audit = await withProgress('agentlint rule check', () =>
+      checkRules({ engine: runClaude, repoRoot, model }),
+    );
+
+    console.log(`\n${audit.summary}\n`);
+    const kindColor: Record<string, (s: string) => string> = {
+      contradiction: pc.red,
+      duplication: pc.yellow,
+      'noise-risk': pc.yellow,
+      vagueness: pc.cyan,
+      improvement: pc.cyan,
+    };
+    for (const finding of audit.findings) {
+      const paint = kindColor[finding.kind] ?? pc.cyan;
+      console.log(`${paint(pc.bold(finding.kind.toUpperCase()))}  ${finding.rules.join(', ')}`);
+      console.log(`  ${finding.problem}`);
+      console.log(`  ${pc.green('recommendation:')} ${finding.recommendation}\n`);
+    }
+    if (audit.findings.length === 0) {
+      console.log(pc.green('No issues found in the rule set.'));
+    }
   });
 
 ruleCommand
