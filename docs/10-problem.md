@@ -67,15 +67,17 @@ The reviewer must be able to check:
 - The user **stays in the loop but is not a micromanager**: obvious decisions are made autonomously; only genuine forks (two defensible options, unclear intent) are escalated to the user.
 - Escalation applies to **manual runs**. In hook or CI mode there is no one to ask: the run reduces to pass/block plus a report, and open questions appear in the report.
 
-### Candidate capabilities (decide in the solution doc)
+### Fixing
 
-- Opt-in **auto-fix**: the reviewer applies confirmed fixes itself.
-- Opt-in **auto-commit**: when the review is clean (or after fixes), the reviewer commits — closing the current manual loop end to end.
+- Opt-in **auto-fix**: a separate fixer applies confirmed findings, and the
+  gate re-reviews the result once. The reviewer never edits; the fixer never
+  judges.
 
 ## 5. Non-Goals
 
 - **Not a replacement for ESLint, tsc, or tests.** Those stay. This gate sits above them and checks what they cannot.
 - **Not a replacement for the human on architecture.** Big design decisions stay with the user.
+- **Not the committer.** The gate judges, the caller acts: exit code `0` is the "safe to commit" signal for whoever invoked the review.
 - **Not a generic CI platform.** It is one focused tool: review a change, report findings, pass or block.
 
 ## 6. Success Criteria
