@@ -45,6 +45,8 @@ export interface ReviewRunOptions {
   noCache?: boolean;
   /** Called once the profile resolves, so a caller can enrich its progress. */
   onStart?: (info: { profile: ProfileName; model: string }) => void;
+  /** Called per tool the reviewer runs; enables the live streaming path. */
+  onStep?: (step: string) => void;
   /** Injectable for tests; defaults to the real claude CLI adapter. */
   engine?: EngineFn;
 }
@@ -151,6 +153,9 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     maxTurns: profile.maxTurns,
     maxBudgetUsd: profile.maxBudgetUsd,
     timeoutMs: profile.timeoutMs,
+    // Only the main exploring review streams its steps; the salvage and
+    // refutation calls stay on the plain path.
+    onStep: opts.onStep,
   });
 
   let structured = envelope.structured_output;

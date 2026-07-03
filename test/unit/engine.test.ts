@@ -77,4 +77,52 @@ describe('engine adapter', () => {
 
     await expect(runClaude({ prompt: 'x' })).rejects.toThrow(/Is Claude Code installed/);
   });
+
+  it('streams NDJSON: surfaces tool steps and extracts the result envelope', async () => {
+    const { Readable } = await import('node:stream');
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init' }), // ignored
+      'not json, must be skipped',
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/r/foo.ts' } }],
+        },
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'Grep', input: { pattern: 'todo' } }] },
+      }),
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: '',
+        structured_output: { verdict: 'pass' },
+        total_cost_usd: 0.02,
+      }),
+    ];
+    const stdout = Readable.from(lines.map((l) => `${l}\n`));
+    // The subprocess is a promise (awaitable) that also exposes .stdout; it
+    // resolves only after stdout drains, mirroring a real process exit.
+    let resolveProc: (v: unknown) => void = () => {};
+    const subprocess = new Promise((res) => (resolveProc = res)) as Promise<unknown> & {
+      stdout: unknown;
+    };
+    subprocess.stdout = stdout;
+    stdout.on('end', () => setImmediate(() => resolveProc({ exitCode: 0, stderr: '' })));
+    vi.mocked(execa).mockReturnValueOnce(subprocess as never);
+
+    const steps: string[] = [];
+    const envelope = await runClaude({
+      prompt: 'x',
+      tools: ['Read', 'Grep', 'Glob'],
+      onStep: (s) => steps.push(s),
+    });
+
+    expect(steps).toEqual(['reading foo.ts', 'searching "todo"']);
+    expect(envelope.structured_output).toEqual({ verdict: 'pass' });
+    const args = vi.mocked(execa).mock.calls[0]![1] as string[];
+    expect(args).toContain('stream-json'); // onStep triggers the streaming path
+  });
 });

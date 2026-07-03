@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import readline from 'node:readline';
 
 import { ExecaError, execa } from 'execa';
 
@@ -45,6 +46,12 @@ export interface ClaudeRunOptions {
   maxTurns?: number;
   cwd?: string;
   timeoutMs?: number;
+  /**
+   * Called with a short human phrase per tool the reviewer runs ("reading
+   * report.js"). When set, the run streams (stream-json) so the steps arrive
+   * live; when absent, the run takes the plain single-envelope path.
+   */
+  onStep?: (step: string) => void;
 }
 
 /** The envelope `--output-format json` prints on stdout (fields we rely on). */
@@ -77,7 +84,12 @@ export function claudeBinary(): string {
 }
 
 export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope> {
-  const args = ['-p', '--output-format', 'json', '--no-session-persistence'];
+  // Streaming (stream-json) only when a caller is watching the steps —
+  // agents, hooks, CI, and tests take the plain single-envelope path.
+  const streaming = Boolean(opts.onStep);
+  const args = streaming
+    ? ['-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence']
+    : ['-p', '--output-format', 'json', '--no-session-persistence'];
   if (opts.jsonSchema) args.push('--json-schema', JSON.stringify(opts.jsonSchema));
   if (opts.tools) args.push('--tools', opts.tools.join(','));
   if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
@@ -95,7 +107,7 @@ export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope>
   }
 
   try {
-    const stdout = await spawnClaude(args, opts);
+    const stdout = streaming ? await spawnStreaming(args, opts) : await spawnClaude(args, opts);
 
     let envelope: ClaudeEnvelope;
     try {
@@ -122,43 +134,124 @@ export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope>
   }
 }
 
+// Always spawn with the args as a real array, never through a shell: shell
+// mode joins them into one unescaped string, which would let a repo's own
+// config (e.g. a crafted model name) inject shell commands — in a tool whose
+// whole job is running untrusted code. execa 9 spawns npm .cmd shims on
+// Windows directly, so no shell fallback is needed.
 async function spawnClaude(args: string[], opts: ClaudeRunOptions): Promise<string> {
   const bin = claudeBinary();
-  // Always spawn with the args as a real array, never through a shell:
-  // shell mode joins them into one unescaped string, which would let a
-  // repo's own config (e.g. a crafted model name) inject shell commands —
-  // in a tool whose whole job is running untrusted code. execa 9 spawns
-  // npm .cmd shims on Windows directly, so no shell fallback is needed.
   const result = await execa(bin, args, {
     input: opts.prompt,
     cwd: opts.cwd,
     timeout: opts.timeoutMs,
     reject: false as const,
   }).catch((e: unknown) => e as ExecaError);
+  const { stdout, stderr } = (result ?? {}) as { stdout?: string; stderr?: string };
+  return checkResult(result, bin, opts, stdout ?? '', stderr);
+}
 
-  if (result instanceof Error && result.timedOut) {
+/**
+ * The stream-json path: read NDJSON events as they arrive, surface each tool
+ * the reviewer runs as a live step, and keep the final `result` event — which
+ * is the same envelope the plain path returns.
+ */
+async function spawnStreaming(args: string[], opts: ClaudeRunOptions): Promise<string> {
+  const bin = claudeBinary();
+  const subprocess = execa(bin, args, {
+    input: opts.prompt,
+    cwd: opts.cwd,
+    timeout: opts.timeoutMs,
+    reject: false as const,
+    // Stream stdout ourselves, but let execa keep draining and capturing
+    // stderr: with --verbose, an undrained stderr pipe would back-pressure
+    // the child into a stall, and its text is the error detail we report.
+    buffer: { stdout: false, stderr: true },
+  });
+
+  let resultLine = '';
+  if (subprocess.stdout) {
+    const rl = readline.createInterface({ input: subprocess.stdout });
+    rl.on('line', (line) => {
+      if (!line.startsWith('{')) return;
+      let event: StreamEvent;
+      try {
+        event = JSON.parse(line) as StreamEvent;
+      } catch {
+        return;
+      }
+      if (event.type === 'result') {
+        resultLine = line;
+      } else if (event.type === 'assistant') {
+        for (const block of event.message?.content ?? []) {
+          if (block?.type === 'tool_use') {
+            const step = describeStep(block.name, block.input);
+            if (step) opts.onStep?.(step);
+          }
+        }
+      }
+    });
+  }
+
+  const result = await subprocess.catch((e: unknown) => e as ExecaError);
+  const stderr = (result as { stderr?: string }).stderr;
+  return checkResult(result, bin, opts, resultLine, stderr);
+}
+
+interface StreamEvent {
+  type?: string;
+  message?: { content?: { type?: string; name?: string; input?: Record<string, unknown> }[] };
+}
+
+/** A short human phrase for one tool call, or nothing for tools not worth showing. */
+function describeStep(
+  name: string | undefined,
+  input: Record<string, unknown> | undefined,
+): string | undefined {
+  switch (name) {
+    case 'Read': {
+      const file = input?.file_path;
+      return typeof file === 'string' ? `reading ${path.basename(file)}` : 'reading a file';
+    }
+    case 'Grep':
+      return typeof input?.pattern === 'string'
+        ? `searching "${clip(input.pattern)}"`
+        : 'searching';
+    case 'Glob':
+      return typeof input?.pattern === 'string' ? `scanning ${clip(input.pattern)}` : 'scanning';
+    default:
+      return undefined; // StructuredOutput is the answer, not a step
+  }
+}
+
+function clip(s: string): string {
+  return s.length > 32 ? `${s.slice(0, 31)}…` : s;
+}
+
+/** Shared error handling and result extraction for both spawn paths. */
+function checkResult(
+  result: unknown,
+  bin: string,
+  opts: ClaudeRunOptions,
+  output: string,
+  stderr?: string,
+): string {
+  const err = result instanceof Error ? (result as ExecaError) : undefined;
+  if (err?.timedOut) {
     throw new ClaudeEngineError(
       `The Claude CLI run timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s. ` +
         'Try a deeper profile (--profile standard) or a smaller change.',
     );
   }
-  if (result instanceof Error && result.exitCode === undefined) {
+  if (err && err.exitCode === undefined) {
     throw new ClaudeEngineError(
       `Could not run the Claude CLI ("${bin}"). Is Claude Code installed and on PATH?`,
-      result.message,
+      err.message,
     );
   }
-  const { exitCode, stdout, stderr } = result as {
-    exitCode?: number;
-    stdout: string;
-    stderr: string;
-  };
-  if (exitCode !== 0 && !looksLikeEnvelope(stdout)) {
-    throw new ClaudeEngineError(`Claude CLI exited with code ${exitCode}`, stderr || stdout);
+  const exitCode = (result as { exitCode?: number }).exitCode;
+  if (exitCode !== 0 && !output.trimStart().startsWith('{')) {
+    throw new ClaudeEngineError(`Claude CLI exited with code ${exitCode}`, stderr || output);
   }
-  return stdout;
-}
-
-function looksLikeEnvelope(stdout: string): boolean {
-  return stdout.trimStart().startsWith('{');
+  return output;
 }
