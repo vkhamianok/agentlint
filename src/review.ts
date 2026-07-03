@@ -200,12 +200,17 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     const refutation = await refuteFindings(engine, repoRoot, profile, changeSet, result.findings);
     refutedCount = result.findings.length - refutation.kept.length;
     costUsd += refutation.costUsd;
+
+    // Downgrade block→pass only when the block rested on blocker findings and
+    // none survived refutation. An explicit block on non-blocker grounds, or a
+    // surviving blocker, stands — so the refutation pass (deep, custom) is
+    // never more lenient than the raw verdict for reasons it did not touch.
+    const hadBlocker = result.findings.some((f) => f.severity === 'blocker');
+    const keepsBlocker = refutation.kept.some((f) => f.severity === 'blocker');
     result = {
       ...result,
       findings: refutation.kept,
-      // The verdict must track the surviving findings, or a fully-refuted
-      // review would still block on the original "block".
-      verdict: refutation.kept.some((f) => f.severity === 'blocker') ? 'block' : 'pass',
+      verdict: result.verdict === 'block' && hadBlocker && !keepsBlocker ? 'pass' : result.verdict,
     };
   }
 

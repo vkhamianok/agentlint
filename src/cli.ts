@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -7,16 +7,16 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import pkg from '../package.json' with { type: 'json' };
-import { ConfigError, loadConfig } from './config.js';
+import { ConfigError, DEFAULT_CONFIG, loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
 import { runFixes } from './fix.js';
 import { gateExitCode } from './gate.js';
 import { initProject } from './init.js';
 import { collectAnswers, confirmFindings } from './interactive.js';
 import { BUILTIN_PROFILES, detectContext } from './profiles.js';
-import { type ReportMeta, buildJsonReport } from './report/json.js';
-import { renderMarkdownReport } from './report/markdown.js';
+import type { ReportMeta } from './report/json.js';
 import { renderTerminalReport } from './report/terminal.js';
+import { emitReports } from './report/write.js';
 import { type ReviewRunOutcome, runReview } from './review.js';
 import { addRule, checkRules, deleteRule, editRule, listRules } from './rule-commands.js';
 import { RuleError } from './rules.js';
@@ -180,7 +180,11 @@ const ruleCommand = program.command('rule').description('manage review rules');
 /** Project rules dir + the model for generation, or the global equivalents. */
 async function ruleTarget(global: boolean | undefined): Promise<{ dir: string; model: string }> {
   if (global) {
-    return { dir: path.join(os.homedir(), '.agentlint', 'rules'), model: 'sonnet' };
+    // No project config to read; the default standard model lives in one place.
+    return {
+      dir: path.join(os.homedir(), '.agentlint', 'rules'),
+      model: DEFAULT_CONFIG.profiles.standard.model,
+    };
   }
   const repoRoot = await resolveRepoRoot(process.cwd());
   return {
@@ -352,7 +356,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
     runReview({ ...runOpts, ...progress.hooks }),
   );
   if (outcome.kind === 'empty') {
-    reportEmpty(jsonOnly);
+    await reportEmpty(opts);
     return;
   }
   if (!jsonOnly) renderOutcome(outcome);
@@ -392,7 +396,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
       );
       if (outcome.kind === 'empty') {
         // The fixer reverted the change entirely — nothing left to gate.
-        reportEmpty(jsonOnly, 'Nothing left to review after fixes.');
+        await reportEmpty(opts, 'Nothing left to review after fixes.');
         return;
       }
       if (!jsonOnly) renderOutcome(outcome);
@@ -407,18 +411,15 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
 }
 
 /**
- * With --report -, "nothing to review" must still be machine-readable —
- * and shaped like every other report, so consumers see a stable schema.
+ * "Nothing to review" is still a result: a caller that passed --report must
+ * get a current, stable "pass, nothing to review" file — never a missing file
+ * or a stale one from a previous run. --report - writes it to stdout.
  */
-function reportEmpty(jsonOnly: boolean, message = 'Nothing to review.'): void {
-  if (jsonOnly) {
-    const empty = { verdict: 'pass' as const, summary: message, findings: [], questions: [] };
-    console.log(
-      JSON.stringify(buildJsonReport(empty, { target: 'empty', costUsd: 0, durationMs: 0 })),
-    );
-  } else {
-    console.log(pc.dim(message));
-  }
+async function reportEmpty(opts: ReviewCliOptions, message = 'Nothing to review.'): Promise<void> {
+  if (opts.report !== '-') console.log(pc.dim(message));
+  const empty = { verdict: 'pass' as const, summary: message, findings: [], questions: [] };
+  const stdout = await emitReports(empty, { target: 'empty', costUsd: 0, durationMs: 0 }, opts);
+  if (stdout) console.log(stdout);
   process.exitCode = 0;
 }
 
@@ -452,7 +453,7 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
   );
 
   if (outcome.kind === 'empty') {
-    reportEmpty(opts.report === '-');
+    await reportEmpty(opts);
     return;
   }
 
@@ -483,7 +484,6 @@ async function writeReports(
   outcome: Extract<ReviewRunOutcome, { kind: 'reviewed' }>,
   opts: ReviewCliOptions,
 ): Promise<void> {
-  if (!opts.report && !opts.reportMd) return;
   const meta: ReportMeta = {
     target: outcome.target,
     profile: outcome.profile,
@@ -492,23 +492,8 @@ async function writeReports(
     costUsd: outcome.costUsd,
     durationMs: outcome.durationMs,
   };
-  if (opts.report === '-') {
-    // The machine-readable channel: the JSON report IS the stdout output.
-    console.log(JSON.stringify(buildJsonReport(outcome.result, meta)));
-  } else if (opts.report) {
-    await writeReportFile(
-      opts.report,
-      JSON.stringify(buildJsonReport(outcome.result, meta), null, 2) + '\n',
-    );
-  }
-  if (opts.reportMd) {
-    await writeReportFile(opts.reportMd, renderMarkdownReport(outcome.result, meta));
-  }
-}
-
-async function writeReportFile(file: string, content: string): Promise<void> {
-  await mkdir(path.dirname(path.resolve(file)), { recursive: true });
-  await writeFile(file, content);
+  const stdout = await emitReports(outcome.result, meta, opts);
+  if (stdout) console.log(stdout);
 }
 
 program.parseAsync().catch((err: unknown) => {

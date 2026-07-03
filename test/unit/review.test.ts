@@ -247,6 +247,39 @@ describe('runReview', () => {
     expect(outcome.refutedCount).toBe(1);
   });
 
+  it('keeps an explicit block that rested on non-blocker findings (deep is not more lenient)', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
+    // A "block" verdict with only a warning finding: the schema allows this
+    // drift, and refuting an unrelated finding must not flip block → pass.
+    const review = {
+      verdict: 'block',
+      summary: 'Blocking on judgment, not a blocker finding.',
+      findings: [
+        {
+          file: 'hello.js',
+          line: 1,
+          severity: 'warning',
+          title: 'w',
+          what: 'w',
+          why: 'y',
+          fixes: ['f'],
+          confidence: 'high',
+        },
+      ],
+      questions: [],
+    };
+    const engine = vi
+      .fn()
+      .mockResolvedValueOnce(envelope(review))
+      .mockResolvedValueOnce(envelope({ refuted: false, reason: 'the warning stands' }));
+
+    const outcome = await runReview({ cwd: repo, profile: 'deep', engine });
+
+    if (outcome.kind !== 'reviewed') throw new Error('unreachable');
+    expect(outcome.result.verdict).toBe('block'); // not silently downgraded
+  });
+
   it('salvages a prose-only answer with a cheap conversion call', async () => {
     const repo = await makeRepo();
     await write(repo, 'hello.js', 'export const hello = () => "changed";\n');

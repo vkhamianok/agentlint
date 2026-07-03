@@ -9,7 +9,7 @@ import { ExecaError, execa } from 'execa';
 /**
  * The one and only place that spawns the Claude CLI.
  *
- * Flag set pinned against Claude Code 2.1.198 (verified on this machine, M0 spike):
+ * Flag set pinned against Claude Code 2.1.198:
  *   -p <prompt-via-stdin>     headless mode, prompt piped through stdin to
  *                             avoid Windows argv length limits on big diffs
  *   --output-format json      single JSON envelope on stdout
@@ -18,8 +18,8 @@ import { ExecaError, execa } from 'execa';
  *                             MUST NOT contain a top-level $schema key: 2.1.198
  *                             then silently drops the StructuredOutput tool
  *   --tools <list>            restrict built-in tools ("" disables all)
- *   --permission-mode <mode>  "acceptEdits" for fixer runs only (verified
- *                             live in the M5 --fix flow); reviews never edit
+ *   --permission-mode <mode>  "acceptEdits" for fixer runs only; reviews
+ *                             never edit
  *   --append-system-prompt-file <path>
  *                             principles + rules + output contract, via a
  *                             temp file: the payload (~25KB with the default
