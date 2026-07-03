@@ -40,6 +40,8 @@ interface ReviewCliOptions {
   reportMd?: string;
   fix?: boolean;
   yes?: boolean;
+  /** Commander negation: --no-cache arrives as cache === false. */
+  cache?: boolean;
 }
 
 // The default command chain makes bare `agentlint` mean `review diff`:
@@ -57,6 +59,7 @@ function reviewTarget(name: string, description: string, isDefault = false): Com
     .option('--fail-on <severity>', `severity that blocks: ${severities.join(' | ')}`)
     .option('--depth <depth>', `review depth: ${depths.join(' | ')} (default: by context)`)
     .option('--non-interactive', 'never prompt; behave like a hook/CI run')
+    .option('--no-cache', 'ignore the pass-verdict cache for this run')
     .option('--report <path>', 'also write a JSON report to this file')
     .option('--report-md <path>', 'also write a Markdown report to this file');
 }
@@ -244,6 +247,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
     failOn: parseFailOn(opts.failOn),
     depth: parseDepth(opts.depth),
     context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
+    noCache: opts.cache === false,
   };
 
   let outcome = await runReview(runOpts);
@@ -302,6 +306,7 @@ function renderOutcome(outcome: Extract<ReviewRunOutcome, { kind: 'reviewed' }>)
       durationMs: outcome.durationMs,
       depth: outcome.depth,
       refutedCount: outcome.refutedCount,
+      cached: outcome.cached,
     }),
   );
 }
@@ -315,6 +320,7 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
     failOn: parseFailOn(opts.failOn),
     depth: parseDepth(opts.depth),
     context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
+    noCache: opts.cache === false,
   });
 
   if (outcome.kind === 'empty') {
@@ -323,14 +329,7 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
     return;
   }
 
-  console.log(
-    renderTerminalReport(outcome.result, {
-      costUsd: outcome.costUsd,
-      durationMs: outcome.durationMs,
-      depth: outcome.depth,
-      refutedCount: outcome.refutedCount,
-    }),
-  );
+  renderOutcome(outcome);
   await writeReports(outcome, opts);
   process.exitCode = gateExitCode(outcome.result, outcome.failOn);
 }
@@ -368,6 +367,7 @@ async function writeReports(
     target: outcome.target,
     depth: outcome.depth,
     refutedCount: outcome.refutedCount,
+    cached: outcome.cached,
     costUsd: outcome.costUsd,
     durationMs: outcome.durationMs,
   };

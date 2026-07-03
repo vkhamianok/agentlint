@@ -246,6 +246,21 @@ agentlint --report review.json --report-md review.md
 JSON reports are versioned (`"version": 1`) and carry the verdict, findings,
 depth, cost, and duration — the extension point for other tooling.
 
+## Caching
+
+A passing verdict is cached in `.git/agentlint/cache` (per clone and per
+worktree, never committed), keyed by the change and the guidance that
+judges it: the diff, new files, the task, the principles, and the rules.
+Depth and model are recorded on the entry rather than hashed into the
+key — which is what lets a deeper pass satisfy a shallower request.
+Re-reviewing an unchanged diff — a hook re-run, a retried commit — is
+instant and free, marked `cached` in the report. Change one word in one
+rule and the key honestly misses.
+
+Blocking verdicts are never cached (a block stays re-runnable), snapshots
+are never cached, and `--no-cache` bypasses the cache for a run. A deeper
+manual review that passes also satisfies the hook for the same diff.
+
 ## Design decisions
 
 | Decision                                     | Why                                                                                                                                              |

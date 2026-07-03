@@ -1,3 +1,4 @@
+import { cacheDir, cacheKey, readCachedPass, writeCachedPass } from './cache.js';
 import { loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
 import { type Depth, type DepthProfile, type RunContext, resolveProfile } from './profiles.js';
@@ -35,6 +36,8 @@ export interface ReviewRunOptions {
   depth?: Depth;
   /** Where the run happens; picks the default depth from config. */
   context?: RunContext;
+  /** Skip the pass-verdict cache for this run (--no-cache). */
+  noCache?: boolean;
   /** Injectable for tests; defaults to the real claude CLI adapter. */
   engine?: EngineFn;
 }
@@ -50,6 +53,8 @@ export type ReviewRunOutcome =
       depth: Depth;
       /** Findings dropped by the deep profile's refutation pass. */
       refutedCount: number;
+      /** True when the verdict came from the pass cache, not a live run. */
+      cached: boolean;
       costUsd: number;
       durationMs: number;
     };
@@ -76,14 +81,51 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
       inheritGlobalRules: config.inheritGlobalRules,
     }),
   ]);
+  const task = opts.task ?? changeSet.taskFallback;
   const { prompt, appendSystemPrompt } = buildReviewPrompt({
     changeSet,
     principles,
     rules,
-    task: opts.task ?? changeSet.taskFallback,
+    task,
     focus: profile.promptFocus,
     canExplore: profile.tools.length > 0,
   });
+
+  // The key hashes the change and the law; depth and model live in the
+  // entry, so a deeper pass satisfies a shallower request for the same
+  // change. Snapshot "changes" are only a file listing — identical keys
+  // could mean different file contents — so snapshots are never cached.
+  const cacheable = !opts.noCache && changeSet.kind !== 'snapshot';
+  const key = cacheKey({
+    change: JSON.stringify([
+      changeSet.kind,
+      changeSet.description,
+      changeSet.diff,
+      changeSet.newFiles,
+      task,
+    ]),
+    guidance: JSON.stringify([principles, rules]),
+  });
+  const cachePath = cacheable ? await cacheDir(repoRoot) : undefined;
+  if (cachePath) {
+    const entry = await readCachedPass(cachePath, key, {
+      depth,
+      model: profile.model,
+    });
+    if (entry) {
+      return {
+        kind: 'reviewed',
+        result: entry.result,
+        failOn: opts.failOn ?? config.failOn,
+        target: changeSet.description,
+        depth: entry.depth,
+        refutedCount: 0,
+        cached: true,
+        costUsd: 0,
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  }
 
   const envelope = await engine({
     prompt,
@@ -148,6 +190,23 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     };
   }
 
+  if (cachePath && result.verdict === 'pass') {
+    // Caching is an optimization, never part of the verdict: a failed write
+    // (read-only worktree, disk full) is reported but must not turn an
+    // already-computed pass into a crash.
+    try {
+      await writeCachedPass(cachePath, key, {
+        result,
+        depth,
+        model: profile.model,
+      });
+    } catch (err) {
+      console.error(
+        `agentlint: could not write the verdict cache: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   return {
     kind: 'reviewed',
     result,
@@ -155,6 +214,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     target: changeSet.description,
     depth,
     refutedCount,
+    cached: false,
     costUsd,
     durationMs: Date.now() - startedAt,
   };

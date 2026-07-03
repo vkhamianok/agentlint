@@ -4,6 +4,8 @@ export interface ReportMeta {
   target: string;
   depth?: string;
   refutedCount?: number;
+  /** The verdict came from the pass cache, not a live run. */
+  cached?: boolean;
   costUsd?: number;
   durationMs?: number;
 }
@@ -21,6 +23,7 @@ export function buildJsonReport(result: ReviewResult, meta: ReportMeta): object 
     questions: result.questions,
     depth: meta.depth,
     refutedCount: meta.refutedCount,
+    cached: meta.cached ?? false,
     costUsd: meta.costUsd,
     durationMs: meta.durationMs,
   };

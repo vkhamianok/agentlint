@@ -36,6 +36,7 @@ const meta = {
   target: 'commit HEAD',
   depth: 'deep',
   refutedCount: 2,
+  cached: true,
   costUsd: 0.12,
   durationMs: 34_000,
 };
@@ -60,7 +61,7 @@ describe('markdown report', () => {
     const md = renderMarkdownReport(result, meta);
 
     expect(md).toContain('2 finding(s) refuted by independent verification');
-    expect(md).toContain('_deep · 34.0s · $0.1200_');
+    expect(md).toContain('_cached · deep · 34.0s · $0.1200_');
   });
 });
 
@@ -74,6 +75,7 @@ describe('json report', () => {
     expect(report.target).toBe('commit HEAD');
     expect(report.depth).toBe('deep');
     expect(report.refutedCount).toBe(2);
+    expect(report.cached).toBe(true); // agents must be able to tell a cached pass from a live one
     expect(report.costUsd).toBe(0.12);
     expect(typeof report.generatedAt).toBe('string');
   });
