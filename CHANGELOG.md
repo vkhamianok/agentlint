@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.3.0 — 2026-07-03
+
+**Breaking config changes** (0.2.0 configs need updating; the validator
+rejects the old keys loudly):
+
+- `--depth` is renamed to `--profile`.
+- The config `depth` context map is renamed `defaultProfile`.
+- `models` and `timeoutMinutes` (separate maps keyed by profile) fold into
+  `profiles.<name>.{model,timeoutMinutes,budgetUsd}`.
+- The JSON/Markdown report field `depth` is renamed `profile`.
+
+New:
+
+- **Open profile set.** `profiles` is a named map: tune the three built-ins
+  (quick/standard/deep) or add your own — e.g. a security `audit` on a
+  stronger model. A custom profile inherits the standard numbers, carries
+  free-text `instructions` appended to the reviewer prompt, and runs a
+  thorough review (explore + refutation) like `deep`. `--profile <name>`
+  runs any of them; unknown names fail loudly.
+- **Verdict cache.** A passing verdict is cached in `.git/agentlint/cache`
+  (per clone/worktree, never committed), keyed by the change and everything
+  that shapes the verdict (guidance + the profile's model, focus, explore,
+  refute). Re-reviewing an unchanged diff under the same profile is instant
+  and free (`cached` in the report). Blocks and snapshots are never cached;
+  `--no-cache` bypasses. Each profile caches for itself.
+- `agentlint rule check`: a meta-review of the effective rule set —
+  contradictions, duplication, vagueness, and noise risks, each with a
+  concrete rewording.
+- `budgetUsd` per profile: a hard spend cap, configurable like the timeout.
+- A TTY-gated stderr progress line during engine-driven commands; agents,
+  hooks, and CI see nothing.
+- `--report -` writes the JSON report as the only stdout output, for pipes
+  and calling agents.
+
+Fixed:
+
+- **Security:** the Claude CLI is never spawned through a shell. The old
+  Windows shell-retry path joined arguments unescaped, so a repo's own
+  config model name could inject shell commands. The fallback is removed
+  (execa spawns npm `.cmd` shims directly), and model names are restricted
+  to safe characters.
+
 ## 0.2.0 — 2026-07-03
 
 - `agentlint init`: idempotent project setup — starter config with the
