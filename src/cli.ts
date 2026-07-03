@@ -64,6 +64,29 @@ function reviewTarget(name: string, description: string, isDefault = false): Com
     .option('--report-md <path>', 'also write a Markdown report to this file');
 }
 
+/**
+ * A ticking status line for the humans staring at an otherwise silent
+ * minute-long engine run. stderr-only and TTY-gated: agents, hooks with
+ * captured output, and CI see nothing — their contract (stdout + exit
+ * code) is untouched.
+ */
+async function withProgress<T>(label: string, work: () => Promise<T>): Promise<T> {
+  if (!process.stderr.isTTY) return work();
+  const startedAt = Date.now();
+  const tick = (): boolean =>
+    process.stderr.write(
+      `\r${pc.dim(`${label} · ${Math.round((Date.now() - startedAt) / 1000)}s `)}`,
+    );
+  const timer = setInterval(tick, 1000);
+  tick();
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
+    process.stderr.write(`\r${' '.repeat(label.length + 8)}\r`);
+  }
+}
+
 reviewTarget('diff', 'review uncommitted working-tree changes (default)', true)
   .option('--fix', 'apply confirmed fixes with a separate fixer run, then re-review once')
   .option('--yes', 'with --fix: fix all blocking findings without prompting')
@@ -139,15 +162,17 @@ ruleCommand
       opts: { global?: boolean; severity?: string; name?: string },
     ) => {
       const target = await ruleTarget(opts.global);
-      const rule = await addRule({
-        engine: runClaude,
-        description: descriptionWords.join(' '),
-        targetDir: target.dir,
-        model: target.model,
-        severity: parseSeverityOption(opts.severity, '--severity'),
-        name: opts.name,
-        cwd: process.cwd(),
-      });
+      const rule = await withProgress('agentlint rule add', () =>
+        addRule({
+          engine: runClaude,
+          description: descriptionWords.join(' '),
+          targetDir: target.dir,
+          model: target.model,
+          severity: parseSeverityOption(opts.severity, '--severity'),
+          name: opts.name,
+          cwd: process.cwd(),
+        }),
+      );
       console.log(pc.green(`Created ${rule.file}`) + '\n');
       console.log(rule.content);
     },
@@ -167,15 +192,17 @@ ruleCommand
       opts: { global?: boolean; severity?: string },
     ) => {
       const target = await ruleTarget(opts.global);
-      const rule = await editRule({
-        engine: runClaude,
-        slug,
-        instruction: instructionWords.join(' '),
-        targetDir: target.dir,
-        model: target.model,
-        severity: parseSeverityOption(opts.severity, '--severity'),
-        cwd: process.cwd(),
-      });
+      const rule = await withProgress('agentlint rule edit', () =>
+        editRule({
+          engine: runClaude,
+          slug,
+          instruction: instructionWords.join(' '),
+          targetDir: target.dir,
+          model: target.model,
+          severity: parseSeverityOption(opts.severity, '--severity'),
+          cwd: process.cwd(),
+        }),
+      );
       console.log(pc.green(`Updated ${rule.file}`) + '\n');
       console.log(rule.content);
     },
@@ -250,7 +277,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
     noCache: opts.cache === false,
   };
 
-  let outcome = await runReview(runOpts);
+  let outcome = await withProgress('agentlint review', () => runReview(runOpts));
   if (outcome.kind === 'empty') {
     console.log(pc.dim('Nothing to review.'));
     process.exitCode = 0;
@@ -270,18 +297,20 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
 
     if (confirmed.length > 0) {
       console.log(pc.bold(`\nFixing ${confirmed.length} finding(s)...`));
-      const fixResult = await runFixes({
-        engine: runClaude,
-        repoRoot,
-        findings: confirmed,
-        model: 'sonnet',
-        task,
-        answers,
-      });
+      const fixResult = await withProgress('agentlint fix', () =>
+        runFixes({
+          engine: runClaude,
+          repoRoot,
+          findings: confirmed,
+          model: 'sonnet',
+          task,
+          answers,
+        }),
+      );
       console.log(`\n${fixResult.summary}\n`);
       console.log(pc.bold('Re-reviewing the fixed working tree...'));
 
-      outcome = await runReview(runOpts);
+      outcome = await withProgress('agentlint re-review', () => runReview(runOpts));
       if (outcome.kind === 'empty') {
         // The fixer reverted the change entirely — nothing left to gate.
         console.log(pc.dim('Nothing left to review after fixes.'));
@@ -313,15 +342,18 @@ function renderOutcome(outcome: Extract<ReviewRunOutcome, { kind: 'reviewed' }>)
 
 async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void> {
   if (skipRequested()) return;
-  const outcome = await runReview({
-    cwd: process.cwd(),
-    target,
-    task: await resolveTask(opts),
-    failOn: parseFailOn(opts.failOn),
-    depth: parseDepth(opts.depth),
-    context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
-    noCache: opts.cache === false,
-  });
+  const task = await resolveTask(opts);
+  const outcome = await withProgress(`agentlint review (${target.kind})`, () =>
+    runReview({
+      cwd: process.cwd(),
+      target,
+      task,
+      failOn: parseFailOn(opts.failOn),
+      depth: parseDepth(opts.depth),
+      context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
+      noCache: opts.cache === false,
+    }),
+  );
 
   if (outcome.kind === 'empty') {
     console.log(pc.dim('Nothing to review.'));
