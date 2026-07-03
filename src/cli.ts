@@ -72,13 +72,18 @@ function reviewTarget(name: string, description: string, isDefault = false): Com
  * minute-long engine run. stderr-only and TTY-gated: agents, hooks with
  * captured output, and CI see nothing — their contract (stdout + exit
  * code) is untouched.
+ *
+ * The label is a function so it can grow while the run proceeds — the
+ * profile and model land once the review resolves them, and (later) a live
+ * step as the reviewer works.
  */
-async function withProgress<T>(label: string, work: () => Promise<T>): Promise<T> {
+async function withProgress<T>(label: string | (() => string), work: () => Promise<T>): Promise<T> {
   if (!process.stderr.isTTY) return work();
+  const render = typeof label === 'function' ? label : () => label;
   const startedAt = Date.now();
   const tick = (): boolean =>
     process.stderr.write(
-      `\r${pc.dim(`${label} · ${Math.round((Date.now() - startedAt) / 1000)}s `)}`,
+      `\r\x1b[2K${pc.dim(`${render()} · ${Math.round((Date.now() - startedAt) / 1000)}s`)}`,
     );
   const timer = setInterval(tick, 1000);
   tick();
@@ -86,7 +91,7 @@ async function withProgress<T>(label: string, work: () => Promise<T>): Promise<T
     return await work();
   } finally {
     clearInterval(timer);
-    process.stderr.write(`\r${' '.repeat(label.length + 8)}\r`);
+    process.stderr.write('\r\x1b[2K'); // clear the whole line, whatever its length
   }
 }
 
@@ -310,7 +315,12 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
     noCache: opts.cache === false,
   };
 
-  let outcome = await withProgress('agentlint review', () => runReview(runOpts));
+  let detail = '';
+  const label = (): string => `agentlint review${detail}`;
+  const onStart = (i: { profile: string; model: string }): void => {
+    detail = ` · ${i.profile} · ${i.model}`;
+  };
+  let outcome = await withProgress(label, () => runReview({ ...runOpts, onStart }));
   if (outcome.kind === 'empty') {
     reportEmpty(jsonOnly);
     return;
@@ -346,7 +356,10 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
         console.log(pc.bold('Re-reviewing the fixed working tree...'));
       }
 
-      outcome = await withProgress('agentlint re-review', () => runReview(runOpts));
+      outcome = await withProgress(
+        () => `agentlint re-review${detail}`,
+        () => runReview({ ...runOpts, onStart }),
+      );
       if (outcome.kind === 'empty') {
         // The fixer reverted the change entirely — nothing left to gate.
         reportEmpty(jsonOnly, 'Nothing left to review after fixes.');
@@ -394,7 +407,9 @@ function renderOutcome(outcome: Extract<ReviewRunOutcome, { kind: 'reviewed' }>)
 async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void> {
   if (skipRequested()) return;
   const task = await resolveTask(opts);
-  const outcome = await withProgress(`agentlint review (${target.kind})`, () =>
+  let detail = '';
+  const label = (): string => `agentlint review (${target.kind})${detail}`;
+  const outcome = await withProgress(label, () =>
     runReview({
       cwd: process.cwd(),
       target,
@@ -403,6 +418,9 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
       profile: opts.profile,
       context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
       noCache: opts.cache === false,
+      onStart: (i) => {
+        detail = ` · ${i.profile} · ${i.model}`;
+      },
     }),
   );
 

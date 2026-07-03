@@ -43,6 +43,8 @@ export interface ReviewRunOptions {
   context?: RunContext;
   /** Skip the pass-verdict cache for this run (--no-cache). */
   noCache?: boolean;
+  /** Called once the profile resolves, so a caller can enrich its progress. */
+  onStart?: (info: { profile: ProfileName; model: string }) => void;
   /** Injectable for tests; defaults to the real claude CLI adapter. */
   engine?: EngineFn;
 }
@@ -72,6 +74,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   const config = await loadConfig(repoRoot);
   const profileName = resolveProfileName(opts, config);
   const profile = resolveProfile(profileName, config);
+  opts.onStart?.({ profile: profileName, model: profile.model });
   const target: TargetSpec = opts.target ?? { kind: 'working-tree' };
 
   const changeSet = await resolveTarget(repoRoot, target, config.ignore);
