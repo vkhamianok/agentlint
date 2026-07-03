@@ -248,10 +248,13 @@ Escape hatch when a blocked commit must land anyway:
 
 ```sh
 agentlint --report review.json --report-md review.md
+agentlint --report -       # JSON on stdout, nothing else — for pipes and agents
 ```
 
 JSON reports are versioned (`"version": 1`) and carry the verdict, findings,
-depth, cost, and duration — the extension point for other tooling.
+depth, cost, and duration — the extension point for other tooling. With
+`--report -` the JSON report is the only stdout output, so a calling agent
+can consume findings without parsing the human-readable rendering.
 
 ## Caching
 

@@ -60,7 +60,7 @@ function reviewTarget(name: string, description: string, isDefault = false): Com
     .option('--depth <depth>', `review depth: ${depths.join(' | ')} (default: by context)`)
     .option('--non-interactive', 'never prompt; behave like a hook/CI run')
     .option('--no-cache', 'ignore the pass-verdict cache for this run')
-    .option('--report <path>', 'also write a JSON report to this file')
+    .option('--report <path>', 'also write a JSON report to this file, or "-" for JSON on stdout')
     .option('--report-md <path>', 'also write a Markdown report to this file');
 }
 
@@ -296,6 +296,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
   if (opts.fix && !interactive && !opts.yes) {
     throw new ConfigError('--fix in a non-interactive run requires --yes.');
   }
+  const jsonOnly = opts.report === '-';
   const runOpts = {
     cwd: process.cwd(),
     target,
@@ -308,11 +309,10 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
 
   let outcome = await withProgress('agentlint review', () => runReview(runOpts));
   if (outcome.kind === 'empty') {
-    console.log(pc.dim('Nothing to review.'));
-    process.exitCode = 0;
+    reportEmpty(jsonOnly);
     return;
   }
-  renderOutcome(outcome);
+  if (!jsonOnly) renderOutcome(outcome);
   let exitCode: number = gateExitCode(outcome.result, outcome.failOn);
 
   if (exitCode !== 0 && opts.fix) {
@@ -325,7 +325,9 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
     const confirmed = await confirmFindings(candidates, opts.yes ?? false);
 
     if (confirmed.length > 0) {
-      console.log(pc.bold(`\nFixing ${confirmed.length} finding(s)...`));
+      // With --report -, stdout carries the JSON line and nothing else;
+      // the fix narration is for humans only.
+      if (!jsonOnly) console.log(pc.bold(`\nFixing ${confirmed.length} finding(s)...`));
       const fixResult = await withProgress('agentlint fix', () =>
         runFixes({
           engine: runClaude,
@@ -336,25 +338,42 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
           answers,
         }),
       );
-      console.log(`\n${fixResult.summary}\n`);
-      console.log(pc.bold('Re-reviewing the fixed working tree...'));
+      if (!jsonOnly) {
+        console.log(`\n${fixResult.summary}\n`);
+        console.log(pc.bold('Re-reviewing the fixed working tree...'));
+      }
 
       outcome = await withProgress('agentlint re-review', () => runReview(runOpts));
       if (outcome.kind === 'empty') {
         // The fixer reverted the change entirely — nothing left to gate.
-        console.log(pc.dim('Nothing left to review after fixes.'));
-        process.exitCode = 0;
+        reportEmpty(jsonOnly, 'Nothing left to review after fixes.');
         return;
       }
-      renderOutcome(outcome);
+      if (!jsonOnly) renderOutcome(outcome);
       exitCode = gateExitCode(outcome.result, outcome.failOn);
-    } else {
+    } else if (!jsonOnly) {
       console.log(pc.dim('No findings confirmed; nothing to fix.'));
     }
   }
 
   await writeReports(outcome, opts);
   process.exitCode = exitCode;
+}
+
+/**
+ * With --report -, "nothing to review" must still be machine-readable —
+ * and shaped like every other report, so consumers see a stable schema.
+ */
+function reportEmpty(jsonOnly: boolean, message = 'Nothing to review.'): void {
+  if (jsonOnly) {
+    const empty = { verdict: 'pass' as const, summary: message, findings: [], questions: [] };
+    console.log(
+      JSON.stringify(buildJsonReport(empty, { target: 'empty', costUsd: 0, durationMs: 0 })),
+    );
+  } else {
+    console.log(pc.dim(message));
+  }
+  process.exitCode = 0;
 }
 
 function renderOutcome(outcome: Extract<ReviewRunOutcome, { kind: 'reviewed' }>): void {
@@ -385,12 +404,11 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
   );
 
   if (outcome.kind === 'empty') {
-    console.log(pc.dim('Nothing to review.'));
-    process.exitCode = 0;
+    reportEmpty(opts.report === '-');
     return;
   }
 
-  renderOutcome(outcome);
+  if (opts.report !== '-') renderOutcome(outcome);
   await writeReports(outcome, opts);
   process.exitCode = gateExitCode(outcome.result, outcome.failOn);
 }
@@ -432,7 +450,10 @@ async function writeReports(
     costUsd: outcome.costUsd,
     durationMs: outcome.durationMs,
   };
-  if (opts.report) {
+  if (opts.report === '-') {
+    // The machine-readable channel: the JSON report IS the stdout output.
+    console.log(JSON.stringify(buildJsonReport(outcome.result, meta)));
+  } else if (opts.report) {
     await writeReportFile(
       opts.report,
       JSON.stringify(buildJsonReport(outcome.result, meta), null, 2) + '\n',
