@@ -193,12 +193,18 @@ you, a hook, a coding agent — may commit.
 {
   "failOn": "blocker",
   "maxDiffKb": 200,
-  "models": { "quick": "haiku", "standard": "sonnet", "deep": "opus" },
+  "profiles": {
+    "quick": { "model": "haiku", "timeoutMinutes": 5, "budgetUsd": 0.3 },
+    "standard": { "model": "sonnet", "timeoutMinutes": 10, "budgetUsd": 1.5 },
+    "deep": { "model": "opus", "timeoutMinutes": 20, "budgetUsd": 4 }
+  },
   "depth": { "manual": "standard", "hook": "quick", "ci": "deep" },
-  "timeoutMinutes": { "quick": 5, "standard": 10, "deep": 20 },
   "ignore": ["**/node_modules/**", "**/dist/**", "**/pnpm-lock.yaml"]
 }
 ```
+
+Each profile carries its own model, wall-clock cap, and spend cap;
+`depth` maps a run context to the profile it uses.
 
 - `failOn` — lowest severity that blocks (`info` | `warning` | `blocker`).
   `--fail-on` overrides per run.

@@ -39,13 +39,14 @@ describe('loadConfig', () => {
     expect(config.ignore).toEqual(DEFAULT_CONFIG.ignore); // untouched
   });
 
-  it('merges models per key instead of replacing the object', async () => {
+  it('merges profile overrides per field instead of replacing the object', async () => {
     const { home, repo } = await makeDirs();
-    await writeConfig(repo, { models: { standard: 'opus' } });
+    await writeConfig(repo, { profiles: { standard: { model: 'opus', budgetUsd: 3 } } });
 
     const config = await loadConfig(repo, home);
 
-    expect(config.models).toEqual({ quick: 'haiku', standard: 'opus', deep: 'opus' });
+    expect(config.profiles.standard).toEqual({ model: 'opus', timeoutMinutes: 10, budgetUsd: 3 });
+    expect(config.profiles.quick).toEqual(DEFAULT_CONFIG.profiles.quick); // untouched
   });
 
   it('merges depth per key instead of replacing the object', async () => {
@@ -55,15 +56,6 @@ describe('loadConfig', () => {
     const config = await loadConfig(repo, home);
 
     expect(config.depth).toEqual({ manual: 'standard', hook: 'deep', ci: 'deep' });
-  });
-
-  it('merges timeoutMinutes per key', async () => {
-    const { home, repo } = await makeDirs();
-    await writeConfig(repo, { timeoutMinutes: { quick: 15 } });
-
-    const config = await loadConfig(repo, home);
-
-    expect(config.timeoutMinutes).toEqual({ quick: 15, standard: 10, deep: 20 });
   });
 
   it('accepts rule selectors and inheritGlobalRules', async () => {

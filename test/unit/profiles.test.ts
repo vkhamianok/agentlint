@@ -15,12 +15,21 @@ describe('resolveProfile', () => {
     expect(profile.maxBudgetUsd).toBeLessThan(1);
   });
 
-  it('takes timeouts from config.timeoutMinutes', () => {
+  it('takes model, timeout, and budget from the profile settings', () => {
     expect(resolveProfile('quick', DEFAULT_CONFIG).timeoutMs).toBe(5 * 60 * 1000);
-    const custom = { ...DEFAULT_CONFIG, timeoutMinutes: { quick: 1, standard: 30, deep: 45 } };
-    expect(resolveProfile('quick', custom).timeoutMs).toBe(60 * 1000);
-    expect(resolveProfile('standard', custom).timeoutMs).toBe(30 * 60 * 1000);
-    expect(resolveProfile('deep', custom).timeoutMs).toBe(45 * 60 * 1000);
+    expect(resolveProfile('standard', DEFAULT_CONFIG).maxBudgetUsd).toBe(1.5);
+
+    const custom = {
+      ...DEFAULT_CONFIG,
+      profiles: {
+        ...DEFAULT_CONFIG.profiles,
+        standard: { model: 'opus', timeoutMinutes: 30, budgetUsd: 3 },
+      },
+    };
+    const profile = resolveProfile('standard', custom);
+    expect(profile.model).toBe('opus');
+    expect(profile.timeoutMs).toBe(30 * 60 * 1000);
+    expect(profile.maxBudgetUsd).toBe(3);
   });
 
   it('quick: never raises the cap above the configured one', () => {

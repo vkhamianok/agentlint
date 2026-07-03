@@ -17,15 +17,21 @@ export class ConfigError extends Error {
 
 const depthEnum = z.enum(['quick', 'standard', 'deep']);
 
+const profileOverrideSchema = z.strictObject({
+  model: z.string().optional(),
+  timeoutMinutes: z.number().positive().optional(),
+  budgetUsd: z.number().positive().optional(),
+});
+
 /** What a config file may contain — everything optional, unknown keys rejected. */
 const configFileSchema = z.strictObject({
   failOn: z.enum(severities).optional(),
   maxDiffKb: z.number().positive().optional(),
-  models: z
+  profiles: z
     .strictObject({
-      quick: z.string().optional(),
-      standard: z.string().optional(),
-      deep: z.string().optional(),
+      quick: profileOverrideSchema.optional(),
+      standard: profileOverrideSchema.optional(),
+      deep: profileOverrideSchema.optional(),
     })
     .optional(),
   depth: z
@@ -33,13 +39,6 @@ const configFileSchema = z.strictObject({
       manual: depthEnum.optional(),
       hook: depthEnum.optional(),
       ci: depthEnum.optional(),
-    })
-    .optional(),
-  timeoutMinutes: z
-    .strictObject({
-      quick: z.number().positive().optional(),
-      standard: z.number().positive().optional(),
-      deep: z.number().positive().optional(),
     })
     .optional(),
   ignore: z.array(z.string()).optional(),
@@ -53,17 +52,23 @@ const configFileSchema = z.strictObject({
 
 type ConfigFile = z.infer<typeof configFileSchema>;
 
+export interface ProfileSettings {
+  model: string;
+  /** Hard wall-clock cap per review run. */
+  timeoutMinutes: number;
+  /** Hard spend cap per review run. */
+  budgetUsd: number;
+}
+
 export interface AgentlintConfig {
   /** Lowest severity that blocks the gate. */
   failOn: Severity;
   /** Hard cap on the size of the change sent for review. */
   maxDiffKb: number;
-  /** Model per depth profile. */
-  models: { quick: string; standard: string; deep: string };
-  /** Default depth per run context; --depth overrides. */
+  /** One settings object per depth profile. */
+  profiles: { quick: ProfileSettings; standard: ProfileSettings; deep: ProfileSettings };
+  /** Which profile each run context uses; --depth overrides. */
   depth: { manual: Depth; hook: Depth; ci: Depth };
-  /** Hard wall-clock cap per review run, by profile. */
-  timeoutMinutes: { quick: number; standard: number; deep: number };
   /** Globs excluded from review. Setting this REPLACES the defaults. */
   ignore: string[];
   /**
@@ -78,9 +83,12 @@ export interface AgentlintConfig {
 export const DEFAULT_CONFIG: AgentlintConfig = {
   failOn: 'blocker',
   maxDiffKb: 200,
-  models: { quick: 'haiku', standard: 'sonnet', deep: 'opus' },
+  profiles: {
+    quick: { model: 'haiku', timeoutMinutes: 5, budgetUsd: 0.3 },
+    standard: { model: 'sonnet', timeoutMinutes: 10, budgetUsd: 1.5 },
+    deep: { model: 'opus', timeoutMinutes: 20, budgetUsd: 4 },
+  },
   depth: { manual: 'standard', hook: 'quick', ci: 'deep' },
-  timeoutMinutes: { quick: 5, standard: 10, deep: 20 },
   inheritGlobalRules: true,
   ignore: [
     '**/node_modules/**',
@@ -109,24 +117,30 @@ function mergeConfig(acc: AgentlintConfig, file: ConfigFile): AgentlintConfig {
   return {
     failOn: file.failOn ?? acc.failOn,
     maxDiffKb: file.maxDiffKb ?? acc.maxDiffKb,
-    models: {
-      quick: file.models?.quick ?? acc.models.quick,
-      standard: file.models?.standard ?? acc.models.standard,
-      deep: file.models?.deep ?? acc.models.deep,
+    profiles: {
+      quick: mergeProfile(acc.profiles.quick, file.profiles?.quick),
+      standard: mergeProfile(acc.profiles.standard, file.profiles?.standard),
+      deep: mergeProfile(acc.profiles.deep, file.profiles?.deep),
     },
     depth: {
       manual: file.depth?.manual ?? acc.depth.manual,
       hook: file.depth?.hook ?? acc.depth.hook,
       ci: file.depth?.ci ?? acc.depth.ci,
     },
-    timeoutMinutes: {
-      quick: file.timeoutMinutes?.quick ?? acc.timeoutMinutes.quick,
-      standard: file.timeoutMinutes?.standard ?? acc.timeoutMinutes.standard,
-      deep: file.timeoutMinutes?.deep ?? acc.timeoutMinutes.deep,
-    },
     ignore: file.ignore ?? acc.ignore,
     rules: file.rules ?? acc.rules,
     inheritGlobalRules: file.inheritGlobalRules ?? acc.inheritGlobalRules,
+  };
+}
+
+function mergeProfile(
+  acc: ProfileSettings,
+  override: Partial<ProfileSettings> | undefined,
+): ProfileSettings {
+  return {
+    model: override?.model ?? acc.model,
+    timeoutMinutes: override?.timeoutMinutes ?? acc.timeoutMinutes,
+    budgetUsd: override?.budgetUsd ?? acc.budgetUsd,
   };
 }
 

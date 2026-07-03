@@ -101,7 +101,7 @@ describe('runReview', () => {
     await mkdir(path.join(repo, '.agentlint'), { recursive: true });
     await writeFile(
       path.join(repo, '.agentlint', 'config.json'),
-      '{ "models": { "standard": "opus" }, "failOn": "warning" }',
+      '{ "profiles": { "standard": { "model": "opus" } }, "failOn": "warning" }',
     );
     await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
     const engine = vi.fn().mockResolvedValue(envelope(cleanReview));

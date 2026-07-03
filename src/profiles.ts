@@ -42,11 +42,11 @@ export function resolveProfile(depth: Depth, config: AgentlintConfig): DepthProf
       // answers — measured at roughly half the time of the exploring variant.
       return {
         depth,
-        model: config.models.quick,
+        model: config.profiles.quick.model,
         tools: [],
         maxTurns: 4,
-        maxBudgetUsd: 0.3,
-        timeoutMs: config.timeoutMinutes.quick * 60 * 1000,
+        maxBudgetUsd: config.profiles.quick.budgetUsd,
+        timeoutMs: config.profiles.quick.timeoutMinutes * 60 * 1000,
         maxDiffKb: Math.min(config.maxDiffKb, QUICK_MAX_DIFF_KB),
         promptFocus: QUICK_FOCUS,
         refute: false,
@@ -54,22 +54,22 @@ export function resolveProfile(depth: Depth, config: AgentlintConfig): DepthProf
     case 'standard':
       return {
         depth,
-        model: config.models.standard,
+        model: config.profiles.standard.model,
         tools: READ_TOOLS,
         maxTurns: 40,
-        maxBudgetUsd: 1.5,
-        timeoutMs: config.timeoutMinutes.standard * 60 * 1000,
+        maxBudgetUsd: config.profiles.standard.budgetUsd,
+        timeoutMs: config.profiles.standard.timeoutMinutes * 60 * 1000,
         maxDiffKb: config.maxDiffKb,
         refute: false,
       };
     case 'deep':
       return {
         depth,
-        model: config.models.deep,
+        model: config.profiles.deep.model,
         tools: READ_TOOLS,
         maxTurns: 60,
-        maxBudgetUsd: 4,
-        timeoutMs: config.timeoutMinutes.deep * 60 * 1000,
+        maxBudgetUsd: config.profiles.deep.budgetUsd,
+        timeoutMs: config.profiles.deep.timeoutMinutes * 60 * 1000,
         maxDiffKb: config.maxDiffKb,
         promptFocus: DEEP_FOCUS,
         refute: true,

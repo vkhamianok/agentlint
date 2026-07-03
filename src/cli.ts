@@ -119,7 +119,7 @@ async function ruleTarget(global: boolean | undefined): Promise<{ dir: string; m
   const repoRoot = await resolveRepoRoot(process.cwd());
   return {
     dir: path.join(repoRoot, '.agentlint', 'rules'),
-    model: (await loadConfig(repoRoot)).models.standard,
+    model: (await loadConfig(repoRoot)).profiles.standard.model,
   };
 }
 
