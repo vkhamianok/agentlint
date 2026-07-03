@@ -163,9 +163,10 @@ concrete rewording to apply.
 only what the instruction asks and go through the same format check — a
 bad generation never destroys the existing file.
 
-## Depth profiles
+## Profiles
 
-An LLM review costs time and money, so depth is budgeted per entry point:
+An LLM review costs time and money, so each entry point runs a profile that
+budgets it. Three are built in:
 
 | Profile    | Default for      | Model (default) | Behavior                                                                            |
 | ---------- | ---------------- | --------------- | ----------------------------------------------------------------------------------- |
@@ -173,7 +174,9 @@ An LLM review costs time and money, so depth is budgeted per entry point:
 | `standard` | manual runs      | sonnet          | full principles + rules + code exploration                                          |
 | `deep`     | CI / on demand   | opus            | standard + an independent refutation pass per finding; refuted findings are dropped |
 
-The context (manual TTY / hook / CI) picks the default; `--depth` overrides.
+`defaultProfile` maps the run context (manual TTY / hook / CI) to its
+profile; `--profile <name>` overrides it. The set is open — see
+[Custom profiles](#custom-profiles) to add your own.
 
 ## Fixing
 
@@ -205,13 +208,44 @@ you, a hook, a coding agent — may commit.
     "standard": { "model": "sonnet", "timeoutMinutes": 10, "budgetUsd": 1.5 },
     "deep": { "model": "opus", "timeoutMinutes": 20, "budgetUsd": 4 }
   },
-  "depth": { "manual": "standard", "hook": "quick", "ci": "deep" },
+  "defaultProfile": { "manual": "standard", "hook": "quick", "ci": "deep" },
   "ignore": ["**/node_modules/**", "**/dist/**", "**/pnpm-lock.yaml"]
 }
 ```
 
-Each profile carries its own model, wall-clock cap, and spend cap;
-`depth` maps a run context to the profile it uses.
+Each profile carries its own model, wall-clock cap, spend cap, and optional
+free-text `instructions`; `defaultProfile` maps a run context to the profile
+it uses, and `--profile <name>` overrides it.
+
+### Custom profiles
+
+`profiles` is an open set: tune the three built-ins, or add your own named
+profile for a different job — for example a periodic security audit on a
+stronger, pricier model. A custom profile inherits the standard profile's
+numbers, so it needs only what differs, and it runs a thorough review
+(repo exploration + refutation pass) like `deep`.
+
+```json
+{
+  "profiles": {
+    "audit": {
+      "model": "claude-fable-5",
+      "budgetUsd": 12,
+      "instructions": "Audit for security: injection, committed secrets, unvalidated input at trust boundaries, unsafe deserialization."
+    }
+  }
+}
+```
+
+```sh
+agentlint review snapshot --profile audit --report-md audit.md
+```
+
+This pairs with the audit workflow: a snapshot review (the whole codebase,
+not a diff) under a security profile is how you catch latent problems the
+per-commit gate never sees, because they are not in any diff. Run it before
+a release or after a big refactor — it is an audit that produces a to-do
+list, not a gate that blocks.
 
 - `failOn` — lowest severity that blocks (`info` | `warning` | `blocker`).
   `--fail-on` overrides per run.
@@ -224,7 +258,7 @@ husky pre-commit:
 
 ```sh
 # .husky/pre-commit
-npx agentlint review staged --depth quick
+npx agentlint review staged --profile quick
 ```
 
 This repository dogfoods the same gate, prefixed by its own checks and
@@ -232,7 +266,7 @@ using the locally built CLI instead of the published package — so every
 commit is reviewed by the exact code it contains, not by the last release:
 
 ```sh
-pnpm lint && pnpm typecheck && pnpm format:check && pnpm test && pnpm build && node dist/cli.js review staged --depth quick
+pnpm lint && pnpm typecheck && pnpm format:check && pnpm test && pnpm build && node dist/cli.js review staged --profile quick
 ```
 
 GitHub Actions:
@@ -252,24 +286,26 @@ agentlint --report -       # JSON on stdout, nothing else — for pipes and agen
 ```
 
 JSON reports are versioned (`"version": 1`) and carry the verdict, findings,
-depth, cost, and duration — the extension point for other tooling. With
+profile, cost, and duration — the extension point for other tooling. With
 `--report -` the JSON report is the only stdout output, so a calling agent
 can consume findings without parsing the human-readable rendering.
 
 ## Caching
 
 A passing verdict is cached in `.git/agentlint/cache` (per clone and per
-worktree, never committed), keyed by the change and the guidance that
-judges it: the diff, new files, the task, the principles, and the rules.
-Depth and model are recorded on the entry rather than hashed into the
-key — which is what lets a deeper pass satisfy a shallower request.
-Re-reviewing an unchanged diff — a hook re-run, a retried commit — is
-instant and free, marked `cached` in the report. Change one word in one
-rule and the key honestly misses.
+worktree, never committed), keyed by everything that shapes the verdict:
+the change (diff, new files, task) and the guidance that judges it — the
+principles, the rules, and the profile's verdict-shaping settings (model,
+focus, whether it explores, whether it refutes). Re-reviewing an unchanged
+diff under the same profile — a hook re-run, a retried commit — is instant
+and free, marked `cached` in the report. Change one word in one rule, or
+switch the profile's model, and the key honestly misses.
 
-Blocking verdicts are never cached (a block stays re-runnable), snapshots
-are never cached, and `--no-cache` bypasses the cache for a run. A deeper
-manual review that passes also satisfies the hook for the same diff.
+Each profile caches for itself: there is no cross-profile satisfaction, so a
+manual `standard` pass does not answer a later `quick` hook for the same
+diff (the hook re-runs its cheap `quick` review). Blocking verdicts are never
+cached (a block stays re-runnable), snapshots are never cached, and
+`--no-cache` bypasses the cache for a run.
 
 ## Design decisions
 
@@ -280,7 +316,7 @@ manual review that passes also satisfies the hook for the same diff.
 | Rules are Markdown prose, not a DSL          | Rules are instructions to an LLM; prose is the native format, and tuning the wording is tuning the reviewer.                                     |
 | Findings are schema-validated JSON           | Machine-readable for the gate, renderable for the human; an engine failure is exit `2`, never a silent pass.                                     |
 | `--fix` exists, committing does not          | Applying findings is still the review domain (the eslint `--fix` precedent); the gate judges, the caller acts — exit `0` means "safe to commit". |
-| Cost is budgeted per depth profile           | An LLM is not a free linter: every profile caps diff size, turns, budget, and time.                                                              |
+| Cost is budgeted per profile                 | An LLM is not a free linter: every profile caps diff size, turns, budget, and time.                                                              |
 
 ## How noise is kept down
 

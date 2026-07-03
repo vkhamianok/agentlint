@@ -34,7 +34,7 @@ const result: ReviewResult = {
 
 const meta = {
   target: 'commit HEAD',
-  depth: 'deep',
+  profile: 'deep',
   refutedCount: 2,
   cached: true,
   costUsd: 0.12,
@@ -57,7 +57,7 @@ describe('markdown report', () => {
     expect(md).toContain('$0.1200');
   });
 
-  it('shows the depth badge and the refuted-findings note', () => {
+  it('shows the profile badge and the refuted-findings note', () => {
     const md = renderMarkdownReport(result, meta);
 
     expect(md).toContain('2 finding(s) refuted by independent verification');
@@ -73,7 +73,7 @@ describe('json report', () => {
     expect(report.verdict).toBe('block');
     expect(report.findings).toHaveLength(2);
     expect(report.target).toBe('commit HEAD');
-    expect(report.depth).toBe('deep');
+    expect(report.profile).toBe('deep');
     expect(report.refutedCount).toBe(2);
     expect(report.cached).toBe(true); // agents must be able to tell a cached pass from a live one
     expect(report.costUsd).toBe(0.12);

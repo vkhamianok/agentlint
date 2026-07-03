@@ -3,20 +3,19 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 
 import { execa } from 'execa';
-import { z } from 'zod';
 
-import { type Depth, depths } from './profiles.js';
-import { reviewResultSchema } from './schema.js';
+import { type ReviewResult, reviewResultSchema } from './schema.js';
 
 /**
  * A content-addressed cache of PASSING verdicts, so a hook does not re-review
- * (and re-bill) a diff that an earlier, possibly deeper run already passed.
+ * (and re-bill) a diff an earlier identical run already passed.
  *
- * The key hashes what is being judged and by which law: the change itself,
- * the task, and the principles and rules. The judge's strength — depth and
- * model — lives in the entry instead, because a pass at standard depth must
- * satisfy a later quick request for the same change: a deeper look at the
- * same evidence supersedes a shallower one, never the other way around.
+ * The key hashes everything that shapes the verdict: the change under review
+ * and the guidance that judges it — principles, rules, AND the resolved
+ * profile's verdict-shaping settings (model, focus, whether it explores, and
+ * whether it refutes). A hit therefore means "this exact change, judged this
+ * exact way, already passed." Profiles are an open set with no total order,
+ * so there is no cross-profile satisfaction: each profile caches for itself.
  *
  * Only "pass" is cached: a block should stay re-runnable, and a pass is the
  * only verdict a hook can act on without showing findings to a human.
@@ -27,7 +26,7 @@ const MAX_ENTRIES = 100;
 export interface CacheKeyParts {
   /** The change under review: diff, new files, target kind, task. */
   change: string;
-  /** The law it is judged by: principles + rules, verbatim. */
+  /** The law and the judge: principles, rules, and the profile's settings. */
   guidance: string;
 }
 
@@ -36,14 +35,6 @@ export function cacheKey(parts: CacheKeyParts): string {
     .update(JSON.stringify([parts.change, parts.guidance]))
     .digest('hex');
 }
-
-const cacheEntrySchema = z.object({
-  result: reviewResultSchema,
-  depth: z.enum(depths),
-  model: z.string(),
-});
-
-export type CacheEntry = z.infer<typeof cacheEntrySchema>;
 
 /**
  * Lives inside the git dir (like git-lfs and rr-cache state): never
@@ -55,46 +46,30 @@ export async function cacheDir(repoRoot: string): Promise<string> {
   return path.join(path.resolve(repoRoot, result.stdout.trim()), 'agentlint', 'cache');
 }
 
-/**
- * A hit needs an entry at the requested depth or deeper; at equal depth the
- * model must match too, so upgrading a profile's model retires its old passes.
- */
-export async function readCachedPass(
-  dir: string,
-  key: string,
-  requested: { depth: Depth; model: string },
-): Promise<CacheEntry | undefined> {
+export async function readCachedPass(dir: string, key: string): Promise<ReviewResult | undefined> {
   let raw: string;
   try {
     raw = await readFile(path.join(dir, `${key}.json`), 'utf8');
   } catch {
     return undefined; // a cache miss, whatever the reason — never fail a review over it
   }
-  let entry: CacheEntry;
   try {
-    const parsed = cacheEntrySchema.safeParse(JSON.parse(raw));
-    if (!parsed.success) return undefined; // a corrupt entry is a miss
-    entry = parsed.data;
+    const parsed = reviewResultSchema.safeParse(JSON.parse(raw));
+    if (parsed.success && parsed.data.verdict === 'pass') return parsed.data;
   } catch {
-    return undefined;
+    // a corrupt entry is a miss
   }
-
-  if (entry.result.verdict !== 'pass') return undefined;
-  const entryRank = depths.indexOf(entry.depth);
-  const requestedRank = depths.indexOf(requested.depth);
-  if (entryRank < requestedRank) return undefined;
-  if (entryRank === requestedRank && entry.model !== requested.model) return undefined;
-  return entry;
+  return undefined;
 }
 
-export async function writeCachedPass(dir: string, key: string, entry: CacheEntry): Promise<void> {
-  if (entry.result.verdict !== 'pass') return;
-  // A shallower pass must never overwrite a deeper one for the same change.
-  const existing = await readCachedPass(dir, key, { depth: entry.depth, model: entry.model });
-  if (existing && depths.indexOf(existing.depth) > depths.indexOf(entry.depth)) return;
-
+export async function writeCachedPass(
+  dir: string,
+  key: string,
+  result: ReviewResult,
+): Promise<void> {
+  if (result.verdict !== 'pass') return;
   await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, `${key}.json`), JSON.stringify(entry), 'utf8');
+  await writeFile(path.join(dir, `${key}.json`), JSON.stringify(result), 'utf8');
   await pruneOldEntries(dir);
 }
 

@@ -1,13 +1,14 @@
-import type { AgentlintConfig } from './config.js';
+import { type AgentlintConfig, ConfigError } from './config.js';
 
-export const depths = ['quick', 'standard', 'deep'] as const;
-export type Depth = (typeof depths)[number];
+export const BUILTIN_PROFILES = ['quick', 'standard', 'deep'] as const;
+/** A profile is any name present in config.profiles — the built-ins plus custom ones. */
+export type ProfileName = string;
 
-/** Where the run happens; decides the default depth via config.depth. */
+/** Where the run happens; decides the default profile via config.defaultProfile. */
 export type RunContext = 'manual' | 'hook' | 'ci';
 
-export interface DepthProfile {
-  depth: Depth;
+export interface ResolvedProfile {
+  name: ProfileName;
   model: string;
   /** Built-in tools for the reviewer; empty = single-shot, diff only. */
   tools: string[];
@@ -30,51 +31,49 @@ blockers: broken correctness and dishonesty (swallowed errors, deleted or
 weakened tests, faked results). Skip style, simplicity, and convention
 commentary entirely. When in doubt whether something is a blocker, it is not.`;
 
-const DEEP_FOCUS = `This is a deep review: be thorough. Read the surrounding code, callers,
-and tests before judging. Every finding you report will be independently
-verified, so report everything real — but nothing you cannot defend.`;
+const DEEP_FOCUS = `This is a thorough review. Read the surrounding code, callers, and tests
+before judging. Every finding you report will be independently verified,
+so report everything real — but nothing you cannot defend.`;
 
-export function resolveProfile(depth: Depth, config: AgentlintConfig): DepthProfile {
-  switch (depth) {
-    case 'quick':
-      // No tools: every tool turn is a full API round trip, and a budget of
-      // them makes hook latency unpredictable. Quick reads the diff once and
-      // answers — measured at roughly half the time of the exploring variant.
-      return {
-        depth,
-        model: config.profiles.quick.model,
-        tools: [],
-        maxTurns: 4,
-        maxBudgetUsd: config.profiles.quick.budgetUsd,
-        timeoutMs: config.profiles.quick.timeoutMinutes * 60 * 1000,
-        maxDiffKb: Math.min(config.maxDiffKb, QUICK_MAX_DIFF_KB),
-        promptFocus: QUICK_FOCUS,
-        refute: false,
-      };
-    case 'standard':
-      return {
-        depth,
-        model: config.profiles.standard.model,
-        tools: READ_TOOLS,
-        maxTurns: 40,
-        maxBudgetUsd: config.profiles.standard.budgetUsd,
-        timeoutMs: config.profiles.standard.timeoutMinutes * 60 * 1000,
-        maxDiffKb: config.maxDiffKb,
-        refute: false,
-      };
-    case 'deep':
-      return {
-        depth,
-        model: config.profiles.deep.model,
-        tools: READ_TOOLS,
-        maxTurns: 60,
-        maxBudgetUsd: config.profiles.deep.budgetUsd,
-        timeoutMs: config.profiles.deep.timeoutMinutes * 60 * 1000,
-        maxDiffKb: config.maxDiffKb,
-        promptFocus: DEEP_FOCUS,
-        refute: true,
-      };
+/**
+ * Turns a profile name into concrete run settings. Behaviour is fixed by the
+ * built-in shapes: quick is a single-shot diff gate; standard explores;
+ * deep and any custom profile explore AND run the refutation pass — a custom
+ * profile is meant to be a thorough, deliberate audit. Its config carries the
+ * model, budget, timeout, and free-text focus; the built-ins add their own.
+ */
+export function resolveProfile(name: ProfileName, config: AgentlintConfig): ResolvedProfile {
+  const settings = config.profiles[name];
+  if (!settings) {
+    throw new ConfigError(
+      `Unknown profile "${name}". Available: ${Object.keys(config.profiles).sort().join(', ')}.`,
+    );
   }
+
+  const isQuick = name === 'quick';
+  const explore = !isQuick;
+  // Standard is the only exploring profile that skips refutation; deep and
+  // custom profiles verify their findings.
+  const refute = explore && name !== 'standard';
+
+  // The "be thorough, findings will be verified" framing applies wherever
+  // the refutation pass runs — deep and custom profiles alike. A custom
+  // profile's own instructions layer on top of it.
+  const builtinFocus = isQuick ? QUICK_FOCUS : refute ? DEEP_FOCUS : undefined;
+  const promptFocus =
+    [builtinFocus, settings.instructions].filter(Boolean).join('\n\n') || undefined;
+
+  return {
+    name,
+    model: settings.model,
+    tools: explore ? READ_TOOLS : [],
+    maxTurns: isQuick ? 4 : refute ? 60 : 40,
+    maxBudgetUsd: settings.budgetUsd,
+    timeoutMs: settings.timeoutMinutes * 60 * 1000,
+    maxDiffKb: isQuick ? Math.min(config.maxDiffKb, QUICK_MAX_DIFF_KB) : config.maxDiffKb,
+    promptFocus,
+    refute,
+  };
 }
 
 /** CI beats hook beats manual: CI sets CI=..., hooks have no TTY. */

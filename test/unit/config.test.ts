@@ -49,13 +49,37 @@ describe('loadConfig', () => {
     expect(config.profiles.quick).toEqual(DEFAULT_CONFIG.profiles.quick); // untouched
   });
 
-  it('merges depth per key instead of replacing the object', async () => {
+  it('merges defaultProfile per key instead of replacing the object', async () => {
     const { home, repo } = await makeDirs();
-    await writeConfig(repo, { depth: { hook: 'deep' } });
+    await writeConfig(repo, { defaultProfile: { hook: 'deep' } });
 
     const config = await loadConfig(repo, home);
 
-    expect(config.depth).toEqual({ manual: 'standard', hook: 'deep', ci: 'deep' });
+    expect(config.defaultProfile).toEqual({ manual: 'standard', hook: 'deep', ci: 'deep' });
+  });
+
+  it('adds a custom profile inheriting standard numbers, with its own model and instructions', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(repo, {
+      profiles: { audit: { model: 'claude-fable-5', budgetUsd: 10, instructions: 'Find vulns.' } },
+    });
+
+    const config = await loadConfig(repo, home);
+
+    expect(config.profiles.audit).toEqual({
+      model: 'claude-fable-5',
+      timeoutMinutes: 10, // inherited from standard
+      budgetUsd: 10,
+      instructions: 'Find vulns.',
+    });
+    expect(config.profiles.standard).toEqual(DEFAULT_CONFIG.profiles.standard); // untouched
+  });
+
+  it('rejects a profile name that is not lower-case kebab', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(repo, { profiles: { Audit: { model: 'opus' } } });
+
+    await expect(loadConfig(repo, home)).rejects.toThrow(ConfigError);
   });
 
   it('accepts rule selectors and inheritGlobalRules', async () => {

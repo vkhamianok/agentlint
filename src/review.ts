@@ -1,7 +1,12 @@
 import { cacheDir, cacheKey, readCachedPass, writeCachedPass } from './cache.js';
-import { loadConfig } from './config.js';
+import { type AgentlintConfig, ConfigError, loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
-import { type Depth, type DepthProfile, type RunContext, resolveProfile } from './profiles.js';
+import {
+  type ProfileName,
+  type ResolvedProfile,
+  type RunContext,
+  resolveProfile,
+} from './profiles.js';
 import { buildRefutePrompt, buildReviewPrompt } from './prompt.js';
 import { loadPrinciples, loadRules } from './rules.js';
 import {
@@ -32,9 +37,9 @@ export interface ReviewRunOptions {
   task?: string;
   /** CLI override for the blocking threshold. */
   failOn?: Severity;
-  /** CLI override for the depth profile. */
-  depth?: Depth;
-  /** Where the run happens; picks the default depth from config. */
+  /** CLI override for the profile; must name a configured profile. */
+  profile?: ProfileName;
+  /** Where the run happens; picks the default profile from config. */
   context?: RunContext;
   /** Skip the pass-verdict cache for this run (--no-cache). */
   noCache?: boolean;
@@ -50,8 +55,8 @@ export type ReviewRunOutcome =
       /** Final blocking threshold: CLI override or config. */
       failOn: Severity;
       target: string;
-      depth: Depth;
-      /** Findings dropped by the deep profile's refutation pass. */
+      profile: ProfileName;
+      /** Findings dropped by the refutation pass. */
       refutedCount: number;
       /** True when the verdict came from the pass cache, not a live run. */
       cached: boolean;
@@ -65,8 +70,8 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   const startedAt = Date.now();
   const repoRoot = await resolveRepoRoot(opts.cwd);
   const config = await loadConfig(repoRoot);
-  const depth = opts.depth ?? config.depth[opts.context ?? 'manual'];
-  const profile = resolveProfile(depth, config);
+  const profileName = resolveProfileName(opts, config);
+  const profile = resolveProfile(profileName, config);
   const target: TargetSpec = opts.target ?? { kind: 'working-tree' };
 
   const changeSet = await resolveTarget(repoRoot, target, config.ignore);
@@ -91,10 +96,12 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     canExplore: profile.tools.length > 0,
   });
 
-  // The key hashes the change and the law; depth and model live in the
-  // entry, so a deeper pass satisfies a shallower request for the same
-  // change. Snapshot "changes" are only a file listing — identical keys
-  // could mean different file contents — so snapshots are never cached.
+  // The key hashes the change AND everything that shapes the verdict: the
+  // guidance (principles, rules) and the profile's verdict-shaping settings
+  // (model, focus, explore, refute). Each profile therefore caches for
+  // itself — there is no cross-profile satisfaction. Snapshot "changes" are
+  // only a file listing (identical keys could mean different file contents),
+  // so snapshots are never cached.
   const cacheable = !opts.noCache && changeSet.kind !== 'snapshot';
   const key = cacheKey({
     change: JSON.stringify([
@@ -104,21 +111,25 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
       changeSet.newFiles,
       task,
     ]),
-    guidance: JSON.stringify([principles, rules]),
+    guidance: JSON.stringify([
+      principles,
+      rules,
+      profile.model,
+      profile.promptFocus ?? '',
+      profile.tools.length > 0,
+      profile.refute,
+    ]),
   });
   const cachePath = cacheable ? await cacheDir(repoRoot) : undefined;
   if (cachePath) {
-    const entry = await readCachedPass(cachePath, key, {
-      depth,
-      model: profile.model,
-    });
-    if (entry) {
+    const cachedResult = await readCachedPass(cachePath, key);
+    if (cachedResult) {
       return {
         kind: 'reviewed',
-        result: entry.result,
+        result: cachedResult,
         failOn: opts.failOn ?? config.failOn,
         target: changeSet.description,
-        depth: entry.depth,
+        profile: profileName,
         refutedCount: 0,
         cached: true,
         costUsd: 0,
@@ -195,11 +206,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     // (read-only worktree, disk full) is reported but must not turn an
     // already-computed pass into a crash.
     try {
-      await writeCachedPass(cachePath, key, {
-        result,
-        depth,
-        model: profile.model,
-      });
+      await writeCachedPass(cachePath, key, result);
     } catch (err) {
       console.error(
         `agentlint: could not write the verdict cache: ${err instanceof Error ? err.message : String(err)}`,
@@ -212,12 +219,29 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     result,
     failOn: opts.failOn ?? config.failOn,
     target: changeSet.description,
-    depth,
+    profile: profileName,
     refutedCount,
     cached: false,
     costUsd,
     durationMs: Date.now() - startedAt,
   };
+}
+
+/**
+ * The profile to run: an explicit --profile, else the one configured for the
+ * run context. Either source may name a profile that does not exist (a typo,
+ * a stale defaultProfile entry) — that must fail loudly, not fall through.
+ */
+function resolveProfileName(opts: ReviewRunOptions, config: AgentlintConfig): ProfileName {
+  const context = opts.context ?? 'manual';
+  const name = opts.profile ?? config.defaultProfile[context];
+  if (!(name in config.profiles)) {
+    const source = opts.profile ? '--profile' : `defaultProfile.${context}`;
+    throw new ConfigError(
+      `${source} names an unknown profile "${name}". Available: ${Object.keys(config.profiles).sort().join(', ')}.`,
+    );
+  }
+  return name;
 }
 
 /**
@@ -231,7 +255,7 @@ const MAX_REFUTATIONS = 8;
 async function refuteFindings(
   engine: EngineFn,
   repoRoot: string,
-  profile: DepthProfile,
+  profile: ResolvedProfile,
   changeSet: ChangeSet,
   findings: Finding[],
 ): Promise<{ kept: Finding[]; costUsd: number }> {
@@ -278,17 +302,17 @@ function isEmpty(changeSet: ChangeSet): boolean {
   return !changeSet.diff.trim() && changeSet.newFiles.length === 0;
 }
 
-function enforceSizeCap(changeSet: ChangeSet, profile: DepthProfile): void {
+function enforceSizeCap(changeSet: ChangeSet, profile: ResolvedProfile): void {
   const bytes =
     Buffer.byteLength(changeSet.diff) +
     changeSet.newFiles.reduce((sum, f) => sum + Buffer.byteLength(f.content), 0);
   if (bytes > profile.maxDiffKb * 1024) {
     const hint =
-      profile.depth === 'quick'
-        ? 'Run with --depth standard for large changes, or review a smaller change.'
+      profile.name === 'quick'
+        ? 'Run with --profile standard for large changes, or review a smaller change.'
         : 'Review a smaller change, add ignore globs, or raise maxDiffKb in .agentlint/config.json.';
     throw new TargetError(
-      `The change is ~${Math.round(bytes / 1024)} KB, over the ${profile.maxDiffKb} KB cap of the ${profile.depth} profile. ${hint}`,
+      `The change is ~${Math.round(bytes / 1024)} KB, over the ${profile.maxDiffKb} KB cap of the ${profile.name} profile. ${hint}`,
     );
   }
 }

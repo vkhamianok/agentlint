@@ -54,7 +54,7 @@ export function toCliJsonSchema(schema: z.ZodType): Record<string, unknown> {
 
 export const reviewResultJsonSchema = toCliJsonSchema(reviewResultSchema);
 
-/** Verdict of one refutation call in the deep profile's verification pass. */
+/** Verdict of one refutation call in a profile's verification pass (deep or custom). */
 export const refutationSchema = z.looseObject({
   refuted: z.boolean().describe('true if the finding is wrong, exaggerated, or unverifiable'),
   reason: z.string().describe('one or two sentences justifying the verdict'),

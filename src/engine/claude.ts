@@ -25,7 +25,7 @@ import { ExecaError, execa } from 'execa';
  *                             library) exceeds cmd.exe's 8191-char limit and
  *                             crowds the 32767-char CreateProcess limit as
  *                             argv. Undocumented in --help but verified live
- *   --model <alias>           per depth profile
+ *   --model <alias>           per profile
  *   --max-budget-usd <n>      hard cost cap per run
  *   --max-turns <n>           hard turn cap per run
  *   --no-session-persistence  reviews must not clutter the user's session list
@@ -139,7 +139,7 @@ async function spawnClaude(args: string[], opts: ClaudeRunOptions): Promise<stri
   if (result instanceof Error && result.timedOut) {
     throw new ClaudeEngineError(
       `The Claude CLI run timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s. ` +
-        'Try a deeper profile (--depth standard) or a smaller change.',
+        'Try a deeper profile (--profile standard) or a smaller change.',
     );
   }
   if (result instanceof Error && result.exitCode === undefined) {

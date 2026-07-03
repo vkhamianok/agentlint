@@ -28,7 +28,7 @@ export interface PromptContext {
   rules: Rule[];
   /** What the change was supposed to do, when the user provided it. */
   task?: string;
-  /** Depth-profile instruction narrowing or widening the review. */
+  /** Profile instruction narrowing or widening the review. */
   focus?: string;
   /** Whether the reviewer has read tools (quick runs on the diff alone). */
   canExplore?: boolean;

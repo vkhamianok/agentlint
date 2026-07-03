@@ -2,7 +2,7 @@ import type { ReviewResult } from '../schema.js';
 
 export interface ReportMeta {
   target: string;
-  depth?: string;
+  profile?: string;
   refutedCount?: number;
   /** The verdict came from the pass cache, not a live run. */
   cached?: boolean;
@@ -21,7 +21,7 @@ export function buildJsonReport(result: ReviewResult, meta: ReportMeta): object 
     summary: result.summary,
     findings: result.findings,
     questions: result.questions,
-    depth: meta.depth,
+    profile: meta.profile,
     refutedCount: meta.refutedCount,
     cached: meta.cached ?? false,
     costUsd: meta.costUsd,

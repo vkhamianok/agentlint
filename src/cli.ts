@@ -13,7 +13,7 @@ import { runFixes } from './fix.js';
 import { gateExitCode } from './gate.js';
 import { initProject } from './init.js';
 import { collectAnswers, confirmFindings } from './interactive.js';
-import { type Depth, depths, detectContext } from './profiles.js';
+import { BUILTIN_PROFILES, detectContext } from './profiles.js';
 import { type ReportMeta, buildJsonReport } from './report/json.js';
 import { renderMarkdownReport } from './report/markdown.js';
 import { renderTerminalReport } from './report/terminal.js';
@@ -34,7 +34,7 @@ interface ReviewCliOptions {
   task?: string;
   taskFile?: string;
   failOn?: string;
-  depth?: string;
+  profile?: string;
   nonInteractive?: boolean;
   report?: string;
   reportMd?: string;
@@ -57,7 +57,10 @@ function reviewTarget(name: string, description: string, isDefault = false): Com
     .option('--task <text>', 'what the change was supposed to do')
     .option('--task-file <path>', 'read the task description from a file')
     .option('--fail-on <severity>', `severity that blocks: ${severities.join(' | ')}`)
-    .option('--depth <depth>', `review depth: ${depths.join(' | ')} (default: by context)`)
+    .option(
+      '--profile <name>',
+      `profile: ${BUILTIN_PROFILES.join(' | ')} or a custom one (default: by context)`,
+    )
     .option('--non-interactive', 'never prompt; behave like a hook/CI run')
     .option('--no-cache', 'ignore the pass-verdict cache for this run')
     .option('--report <path>', 'also write a JSON report to this file, or "-" for JSON on stdout')
@@ -302,7 +305,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
     target,
     task,
     failOn: parseFailOn(opts.failOn),
-    depth: parseDepth(opts.depth),
+    profile: opts.profile,
     context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
     noCache: opts.cache === false,
   };
@@ -381,7 +384,7 @@ function renderOutcome(outcome: Extract<ReviewRunOutcome, { kind: 'reviewed' }>)
     renderTerminalReport(outcome.result, {
       costUsd: outcome.costUsd,
       durationMs: outcome.durationMs,
-      depth: outcome.depth,
+      profile: outcome.profile,
       refutedCount: outcome.refutedCount,
       cached: outcome.cached,
     }),
@@ -397,7 +400,7 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
       target,
       task,
       failOn: parseFailOn(opts.failOn),
-      depth: parseDepth(opts.depth),
+      profile: opts.profile,
       context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
       noCache: opts.cache === false,
     }),
@@ -411,12 +414,6 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
   if (opts.report !== '-') renderOutcome(outcome);
   await writeReports(outcome, opts);
   process.exitCode = gateExitCode(outcome.result, outcome.failOn);
-}
-
-function parseDepth(value: string | undefined): Depth | undefined {
-  if (value === undefined) return undefined;
-  if ((depths as readonly string[]).includes(value)) return value as Depth;
-  throw new ConfigError(`Invalid --depth "${value}". Valid: ${depths.join(', ')}.`);
 }
 
 async function resolveTask(opts: ReviewCliOptions): Promise<string | undefined> {
@@ -444,7 +441,7 @@ async function writeReports(
   if (!opts.report && !opts.reportMd) return;
   const meta: ReportMeta = {
     target: outcome.target,
-    depth: outcome.depth,
+    profile: outcome.profile,
     refutedCount: outcome.refutedCount,
     cached: outcome.cached,
     costUsd: outcome.costUsd,

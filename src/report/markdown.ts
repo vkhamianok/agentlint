@@ -37,7 +37,7 @@ export function renderMarkdownReport(result: ReviewResult, meta: ReportMeta): st
 
   const metaParts: string[] = [];
   if (meta.cached) metaParts.push('cached');
-  if (meta.depth) metaParts.push(meta.depth);
+  if (meta.profile) metaParts.push(meta.profile);
   if (meta.durationMs !== undefined) metaParts.push(`${(meta.durationMs / 1000).toFixed(1)}s`);
   if (meta.costUsd !== undefined) metaParts.push(`$${meta.costUsd.toFixed(4)}`);
   if (metaParts.length > 0) lines.push('', '---', '', `_${metaParts.join(' · ')}_`);

@@ -52,6 +52,32 @@ describe('resolveProfile', () => {
     expect(profile.refute).toBe(true);
     expect(profile.promptFocus).toContain('independently');
   });
+
+  it('a custom profile is deep-shaped and carries its own instructions', () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      profiles: {
+        ...DEFAULT_CONFIG.profiles,
+        audit: {
+          model: 'claude-fable-5',
+          timeoutMinutes: 30,
+          budgetUsd: 10,
+          instructions: 'Hunt for injection and secrets.',
+        },
+      },
+    };
+    const profile = resolveProfile('audit', config);
+
+    expect(profile.model).toBe('claude-fable-5');
+    expect(profile.tools).toEqual(['Read', 'Grep', 'Glob']); // explores like deep
+    expect(profile.refute).toBe(true); // verifies like deep
+    expect(profile.maxBudgetUsd).toBe(10);
+    expect(profile.promptFocus).toContain('Hunt for injection');
+  });
+
+  it('throws on an unknown profile name, listing the available ones', () => {
+    expect(() => resolveProfile('nope', DEFAULT_CONFIG)).toThrow(/Unknown profile "nope".*deep/);
+  });
 });
 
 describe('detectContext', () => {

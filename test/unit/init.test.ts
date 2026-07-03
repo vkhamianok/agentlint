@@ -46,7 +46,7 @@ describe('initProject', () => {
     expect(second.find((s) => s.name.includes('pre-commit'))?.status).toBe('skipped');
 
     const hook = await readFile(path.join(repo, '.husky', 'pre-commit'), 'utf8');
-    expect(hook).toBe('pnpm test\nnpx agentlint review staged --depth quick\n');
+    expect(hook).toBe('pnpm test\nnpx agentlint review staged --profile quick\n');
   });
 
   it('points at husky setup when there is no pre-commit hook', async () => {

@@ -129,14 +129,14 @@ describe('runReview', () => {
     expect(call.prompt).toContain('Judge the change against this intent');
   });
 
-  it('picks the depth profile from context config and applies its settings', async () => {
+  it('picks the profile from context config and applies its settings', async () => {
     const repo = await makeRepo();
     await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
     const engine = vi.fn().mockResolvedValue(envelope(cleanReview));
 
     const outcome = await runReview({ cwd: repo, context: 'hook', engine });
 
-    expect(outcome).toMatchObject({ kind: 'reviewed', depth: 'quick' });
+    expect(outcome).toMatchObject({ kind: 'reviewed', profile: 'quick' });
     const call = engine.mock.calls[0]![0];
     expect(call.model).toBe('haiku');
     expect(call.tools).toEqual([]); // quick is single-shot: no exploration turns
@@ -169,7 +169,7 @@ describe('runReview', () => {
       .mockResolvedValueOnce(envelope({ refuted: false, reason: 'verified, it is real' }))
       .mockResolvedValueOnce(envelope({ refuted: true, reason: 'the claim misreads the code' }));
 
-    const outcome = await runReview({ cwd: repo, depth: 'deep', engine });
+    const outcome = await runReview({ cwd: repo, profile: 'deep', engine });
 
     expect(outcome).toMatchObject({ kind: 'reviewed', refutedCount: 1 });
     if (outcome.kind !== 'reviewed') throw new Error('unreachable');
@@ -206,7 +206,7 @@ describe('runReview', () => {
       .mockResolvedValueOnce(envelope(review))
       .mockRejectedValueOnce(new Error('refutation call timed out'));
 
-    const outcome = await runReview({ cwd: repo, depth: 'deep', engine });
+    const outcome = await runReview({ cwd: repo, profile: 'deep', engine });
 
     if (outcome.kind !== 'reviewed') throw new Error('unreachable');
     expect(outcome.result.findings.map((f) => f.title)).toEqual(['real bug']);
@@ -239,7 +239,7 @@ describe('runReview', () => {
       .mockResolvedValueOnce(envelope(review))
       .mockResolvedValueOnce(envelope({ refuted: true, reason: 'not reproducible in the code' }));
 
-    const outcome = await runReview({ cwd: repo, depth: 'deep', engine });
+    const outcome = await runReview({ cwd: repo, profile: 'deep', engine });
 
     if (outcome.kind !== 'reviewed') throw new Error('unreachable');
     expect(outcome.result.verdict).toBe('pass');

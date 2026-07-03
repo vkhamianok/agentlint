@@ -4,7 +4,6 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-import type { Depth } from './profiles.js';
 import type { RuleSelector } from './rules.js';
 import { type Severity, severities } from './schema.js';
 
@@ -15,8 +14,6 @@ export class ConfigError extends Error {
   }
 }
 
-const depthEnum = z.enum(['quick', 'standard', 'deep']);
-
 // A model name reaches the CLI as a spawn argument. Config is untrusted
 // repository content, so restrict it to the characters real model aliases
 // and full names use — no shell metacharacters can ride in through it.
@@ -24,28 +21,31 @@ const modelName = z
   .string()
   .regex(/^[A-Za-z0-9._:-]+$/, 'model may only contain letters, digits, and . _ : -');
 
+const profileName = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]*$/, 'profile names are lower-case kebab, e.g. "audit"');
+
 const profileOverrideSchema = z.strictObject({
   model: modelName.optional(),
   timeoutMinutes: z.number().positive().optional(),
   budgetUsd: z.number().positive().optional(),
+  /** Free-text focus appended to the reviewer's system prompt. */
+  instructions: z.string().optional(),
 });
 
 /** What a config file may contain — everything optional, unknown keys rejected. */
 const configFileSchema = z.strictObject({
   failOn: z.enum(severities).optional(),
   maxDiffKb: z.number().positive().optional(),
-  profiles: z
+  // An open set: the built-in quick/standard/deep can be tuned, and new
+  // named profiles (e.g. a security "audit" on a stronger model) can be added.
+  profiles: z.record(profileName, profileOverrideSchema).optional(),
+  // Which profile each run context uses; values must name an existing profile.
+  defaultProfile: z
     .strictObject({
-      quick: profileOverrideSchema.optional(),
-      standard: profileOverrideSchema.optional(),
-      deep: profileOverrideSchema.optional(),
-    })
-    .optional(),
-  depth: z
-    .strictObject({
-      manual: depthEnum.optional(),
-      hook: depthEnum.optional(),
-      ci: depthEnum.optional(),
+      manual: z.string().optional(),
+      hook: z.string().optional(),
+      ci: z.string().optional(),
     })
     .optional(),
   ignore: z.array(z.string()).optional(),
@@ -65,6 +65,8 @@ export interface ProfileSettings {
   timeoutMinutes: number;
   /** Hard spend cap per review run. */
   budgetUsd: number;
+  /** Free-text focus appended to the reviewer's system prompt. */
+  instructions?: string;
 }
 
 export interface AgentlintConfig {
@@ -72,10 +74,17 @@ export interface AgentlintConfig {
   failOn: Severity;
   /** Hard cap on the size of the change sent for review. */
   maxDiffKb: number;
-  /** One settings object per depth profile. */
-  profiles: { quick: ProfileSettings; standard: ProfileSettings; deep: ProfileSettings };
-  /** Which profile each run context uses; --depth overrides. */
-  depth: { manual: Depth; hook: Depth; ci: Depth };
+  /**
+   * One settings object per named profile. The three built-ins are always
+   * present (statically guaranteed); custom names live in the open record.
+   */
+  profiles: Record<string, ProfileSettings> & {
+    quick: ProfileSettings;
+    standard: ProfileSettings;
+    deep: ProfileSettings;
+  };
+  /** Which profile each run context uses; --profile overrides. */
+  defaultProfile: { manual: string; hook: string; ci: string };
   /** Globs excluded from review. Setting this REPLACES the defaults. */
   ignore: string[];
   /**
@@ -95,7 +104,7 @@ export const DEFAULT_CONFIG: AgentlintConfig = {
     standard: { model: 'sonnet', timeoutMinutes: 10, budgetUsd: 1.5 },
     deep: { model: 'opus', timeoutMinutes: 20, budgetUsd: 4 },
   },
-  depth: { manual: 'standard', hook: 'quick', ci: 'deep' },
+  defaultProfile: { manual: 'standard', hook: 'quick', ci: 'deep' },
   inheritGlobalRules: true,
   ignore: [
     '**/node_modules/**',
@@ -124,15 +133,11 @@ function mergeConfig(acc: AgentlintConfig, file: ConfigFile): AgentlintConfig {
   return {
     failOn: file.failOn ?? acc.failOn,
     maxDiffKb: file.maxDiffKb ?? acc.maxDiffKb,
-    profiles: {
-      quick: mergeProfile(acc.profiles.quick, file.profiles?.quick),
-      standard: mergeProfile(acc.profiles.standard, file.profiles?.standard),
-      deep: mergeProfile(acc.profiles.deep, file.profiles?.deep),
-    },
-    depth: {
-      manual: file.depth?.manual ?? acc.depth.manual,
-      hook: file.depth?.hook ?? acc.depth.hook,
-      ci: file.depth?.ci ?? acc.depth.ci,
+    profiles: mergeProfiles(acc.profiles, file.profiles),
+    defaultProfile: {
+      manual: file.defaultProfile?.manual ?? acc.defaultProfile.manual,
+      hook: file.defaultProfile?.hook ?? acc.defaultProfile.hook,
+      ci: file.defaultProfile?.ci ?? acc.defaultProfile.ci,
     },
     ignore: file.ignore ?? acc.ignore,
     rules: file.rules ?? acc.rules,
@@ -140,15 +145,26 @@ function mergeConfig(acc: AgentlintConfig, file: ConfigFile): AgentlintConfig {
   };
 }
 
-function mergeProfile(
-  acc: ProfileSettings,
-  override: Partial<ProfileSettings> | undefined,
-): ProfileSettings {
-  return {
-    model: override?.model ?? acc.model,
-    timeoutMinutes: override?.timeoutMinutes ?? acc.timeoutMinutes,
-    budgetUsd: override?.budgetUsd ?? acc.budgetUsd,
-  };
+/**
+ * A file's profiles tune the built-ins field-by-field and add new named
+ * ones. A new profile inherits the standard profile's numbers, so a custom
+ * entry can carry just a model and instructions and still be complete.
+ */
+function mergeProfiles(
+  acc: AgentlintConfig['profiles'],
+  overrides: Record<string, Partial<ProfileSettings>> | undefined,
+): AgentlintConfig['profiles'] {
+  const merged = { ...acc };
+  for (const [name, override] of Object.entries(overrides ?? {})) {
+    const base = acc[name] ?? acc.standard;
+    merged[name] = {
+      model: override.model ?? base.model,
+      timeoutMinutes: override.timeoutMinutes ?? base.timeoutMinutes,
+      budgetUsd: override.budgetUsd ?? base.budgetUsd,
+      instructions: override.instructions ?? base.instructions,
+    };
+  }
+  return merged;
 }
 
 async function readConfigFile(file: string): Promise<ConfigFile | undefined> {

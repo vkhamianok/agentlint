@@ -8,7 +8,7 @@ import { runReview } from '../../src/review.js';
 import type { ReviewResult } from '../../src/schema.js';
 import { makeRepo, write } from '../helpers/repo.js';
 
-const baseParts = { change: 'diff text', guidance: 'principles + rules' };
+const baseParts = { change: 'diff text', guidance: 'principles + rules + profile' };
 
 const passResult: ReviewResult = {
   verdict: 'pass',
@@ -33,52 +33,20 @@ describe('cacheKey', () => {
     const key = cacheKey(baseParts);
     expect(cacheKey({ ...baseParts })).toBe(key);
     expect(cacheKey({ ...baseParts, change: 'other diff' })).not.toBe(key);
-    expect(cacheKey({ ...baseParts, guidance: 'one rule reworded' })).not.toBe(key);
+    expect(cacheKey({ ...baseParts, guidance: 'a rule reworded' })).not.toBe(key);
   });
 });
 
 describe('cache store', () => {
-  const standardSonnet = { depth: 'standard' as const, model: 'sonnet' };
-
   it('lives inside the git dir and round-trips a pass', async () => {
     const repo = await makeRepo();
     const dir = await cacheDir(repo);
     expect(dir).toContain(path.join('.git', 'agentlint', 'cache'));
 
     const key = cacheKey(baseParts);
-    await writeCachedPass(dir, key, { result: passResult, ...standardSonnet });
-    expect((await readCachedPass(dir, key, standardSonnet))?.result).toEqual(passResult);
-    expect(await readCachedPass(dir, 'unknown-key', standardSonnet)).toBeUndefined();
-  });
-
-  it('a deeper pass satisfies a shallower request, never the reverse', async () => {
-    const repo = await makeRepo();
-    const dir = await cacheDir(repo);
-    const key = cacheKey(baseParts);
-    await writeCachedPass(dir, key, { result: passResult, depth: 'standard', model: 'sonnet' });
-
-    expect(await readCachedPass(dir, key, { depth: 'quick', model: 'haiku' })).toBeDefined();
-    expect(await readCachedPass(dir, key, { depth: 'deep', model: 'opus' })).toBeUndefined();
-  });
-
-  it('at equal depth the model must match, so a model upgrade retires old passes', async () => {
-    const repo = await makeRepo();
-    const dir = await cacheDir(repo);
-    const key = cacheKey(baseParts);
-    await writeCachedPass(dir, key, { result: passResult, depth: 'quick', model: 'haiku' });
-
-    expect(await readCachedPass(dir, key, { depth: 'quick', model: 'haiku' })).toBeDefined();
-    expect(await readCachedPass(dir, key, { depth: 'quick', model: 'sonnet' })).toBeUndefined();
-  });
-
-  it('a shallower pass never overwrites a deeper one', async () => {
-    const repo = await makeRepo();
-    const dir = await cacheDir(repo);
-    const key = cacheKey(baseParts);
-    await writeCachedPass(dir, key, { result: passResult, depth: 'deep', model: 'opus' });
-    await writeCachedPass(dir, key, { result: passResult, depth: 'quick', model: 'haiku' });
-
-    expect((await readCachedPass(dir, key, { depth: 'deep', model: 'opus' }))?.depth).toBe('deep');
+    await writeCachedPass(dir, key, passResult);
+    expect(await readCachedPass(dir, key)).toEqual(passResult);
+    expect(await readCachedPass(dir, 'unknown-key')).toBeUndefined();
   });
 
   it('never stores a block verdict', async () => {
@@ -86,12 +54,9 @@ describe('cache store', () => {
     const dir = await cacheDir(repo);
     const key = cacheKey(baseParts);
 
-    await writeCachedPass(dir, key, {
-      result: { ...passResult, verdict: 'block' },
-      ...standardSonnet,
-    });
+    await writeCachedPass(dir, key, { ...passResult, verdict: 'block' });
 
-    expect(await readCachedPass(dir, key, standardSonnet)).toBeUndefined();
+    expect(await readCachedPass(dir, key)).toBeUndefined();
   });
 });
 
@@ -112,16 +77,17 @@ describe('runReview caching', () => {
     expect(engine).toHaveBeenCalledTimes(1); // no new call
   });
 
-  it('a manual standard pass satisfies the quick hook for the same change', async () => {
+  it('caches per profile: a standard pass does not answer a quick request', async () => {
     const repo = await makeRepo();
     await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
     const engine = vi.fn().mockResolvedValue(envelope(passResult));
 
-    await runReview({ cwd: repo, depth: 'standard', engine });
-    const hookRun = await runReview({ cwd: repo, context: 'hook', engine });
+    await runReview({ cwd: repo, profile: 'standard', engine });
+    const quickRun = await runReview({ cwd: repo, profile: 'quick', engine });
 
-    expect(hookRun).toMatchObject({ kind: 'reviewed', cached: true, depth: 'standard' });
-    expect(engine).toHaveBeenCalledTimes(1);
+    // Different model + behaviour => different key => a real second run.
+    expect(quickRun).toMatchObject({ kind: 'reviewed', cached: false, profile: 'quick' });
+    expect(engine).toHaveBeenCalledTimes(2);
   });
 
   it('misses when the change is different', async () => {

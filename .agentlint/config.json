@@ -1,5 +1,12 @@
 {
-  "profiles": { "standard": { "budgetUsd": 3 } },
+  "profiles": {
+    "standard": { "budgetUsd": 3 },
+    "audit": {
+      "model": "claude-fable-5",
+      "budgetUsd": 12,
+      "instructions": "Audit for security: injection (shell, SQL, path), secrets committed to code, unvalidated input at trust boundaries, unsafe deserialization, and untrusted data reaching a spawn or eval."
+    }
+  },
   "rules": [
     "library:root-cause",
     "library:errors",

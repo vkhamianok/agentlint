@@ -40,7 +40,7 @@ npx agentlint rule delete <slug>
 Format reference: https://github.com/vkhamianok/agentlint/tree/master/rules
 `;
 
-const HOOK_LINE = 'npx agentlint review staged --depth quick';
+const HOOK_LINE = 'npx agentlint review staged --profile quick';
 
 /** Idempotent project setup; never overwrites what already exists. */
 export async function initProject(opts: {
