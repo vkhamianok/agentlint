@@ -4,8 +4,16 @@
     "audit": {
       "model": "claude-fable-5",
       "budgetUsd": 12,
-      "instructions": "Audit for security: injection (shell, SQL, path), secrets committed to code, unvalidated input at trust boundaries, unsafe deserialization, and untrusted data reaching a spawn or eval."
+      "instructions": "Audit for security: injection (shell, SQL, path), secrets committed to code, unvalidated input at trust boundaries, unsafe deserialization, and untrusted data reaching a spawn or eval.",
+      "rules": ["library:root-cause", "library:errors", ".agentlint/security/*.md"],
+      "inheritProjectRules": false
     }
+  },
+  "scopes": {
+    "src": ["src/**"],
+    "tests": ["test/**"],
+    "rules": ["rules/**"],
+    "docs": ["docs/**"]
   },
   "rules": [
     "library:root-cause",
