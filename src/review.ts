@@ -1,4 +1,4 @@
-import { cacheDir, cacheKey, readCachedPass, writeCachedPass } from './cache.js';
+import { type CacheMeta, cacheDir, cacheKey, readCache, writeCache } from './cache.js';
 import { type AgentlintConfig, ConfigError, loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
 import {
@@ -11,9 +11,11 @@ import { buildRefutePrompt, buildReviewPrompt } from './prompt.js';
 import { loadPrinciples, loadRules } from './rules.js';
 import {
   type Finding,
+  type ResolvedFinding,
   type ReviewResult,
   type Severity,
   deriveVerdict,
+  findingId,
   refutationJsonSchema,
   refutationSchema,
   reviewerOutputJsonSchema,
@@ -65,10 +67,12 @@ export type ReviewRunOutcome =
       profile: ProfileName;
       /** Findings dropped by the refutation pass. */
       refutedCount: number;
-      /** True when the verdict came from the pass cache, not a live run. */
+      /** True when the verdict came from the cache, not a live run. */
       cached: boolean;
       costUsd: number;
       durationMs: number;
+      /** The cache key of this run; the handle `ignore --run` points at. */
+      runId: string;
     };
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob'];
@@ -140,11 +144,14 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   });
   const cachePath = cacheable ? await cacheDir(repoRoot) : undefined;
   if (cachePath) {
-    const cachedResult = await readCachedPass(cachePath, key);
-    if (cachedResult) {
+    const cached = await readCache(cachePath, key);
+    if (cached) {
+      // Re-derive: an `ignore` may have flipped a finding's resolution since
+      // this entry was written, so the stored verdict can be stale.
+      const verdict = deriveVerdict(cached.result.findings, failOn, cached.result.resolution);
       return {
         kind: 'reviewed',
-        result: cachedResult,
+        result: { ...cached.result, verdict },
         failOn,
         target: changeSet.description,
         profile: profileName,
@@ -152,6 +159,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
         cached: true,
         costUsd: 0,
         durationMs: Date.now() - startedAt,
+        runId: key,
       };
     }
   }
@@ -217,22 +225,34 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     findings = refutation.kept;
   }
 
-  // The reviewer reports and rates; the gate decides. Refutation only removes
-  // findings — the verdict follows from whatever survives, so a refuted-away
-  // blocker turns the run to pass on its own, with no special-case downgrade.
+  // Give each surviving finding a stable id and an open resolution, so an
+  // `ignore` has something to point at. The reviewer reports and rates; the
+  // gate decides — refutation only removes findings, and the verdict follows.
+  const resolved: ResolvedFinding[] = findings.map((f) => ({
+    ...f,
+    id: findingId(f),
+    resolution: { state: 'open' as const },
+  }));
   const result: ReviewResult = {
-    verdict: deriveVerdict(findings, failOn),
+    verdict: deriveVerdict(resolved, failOn),
     summary: output.summary,
-    findings,
+    findings: resolved,
     questions: output.questions,
   };
 
-  if (cachePath && result.verdict === 'pass') {
+  if (cachePath) {
     // Caching is an optimization, never part of the verdict: a failed write
-    // (read-only worktree, disk full) is reported but must not turn an
-    // already-computed pass into a crash.
+    // (read-only worktree, disk full) is reported but must not crash a run
+    // whose result is already computed.
+    const meta: CacheMeta = {
+      profile: profileName,
+      model: profile.model,
+      target: changeSet.description,
+      failOn,
+      at: new Date().toISOString(),
+    };
     try {
-      await writeCachedPass(cachePath, key, result);
+      await writeCache(cachePath, key, { result, meta });
     } catch (err) {
       console.error(
         `agentlint: could not write the verdict cache: ${err instanceof Error ? err.message : String(err)}`,
@@ -250,6 +270,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     cached: false,
     costUsd,
     durationMs: Date.now() - startedAt,
+    runId: key,
   };
 }
 

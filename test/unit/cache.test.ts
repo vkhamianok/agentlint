@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { cacheDir, cacheKey, readCachedPass, writeCachedPass } from '../../src/cache.js';
+import { type CacheEntry, cacheDir, cacheKey, readCache, writeCache } from '../../src/cache.js';
 import type { ClaudeEnvelope } from '../../src/engine/claude.js';
 import { runReview } from '../../src/review.js';
 import type { ReviewResult } from '../../src/schema.js';
@@ -17,6 +17,18 @@ const passResult: ReviewResult = {
   questions: [],
 };
 
+const meta = {
+  profile: 'standard',
+  model: 'sonnet',
+  target: 'diff',
+  failOn: 'blocker',
+  at: '2026-01-01T00:00:00.000Z',
+};
+
+function entry(result: ReviewResult): CacheEntry {
+  return { result, meta };
+}
+
 function envelope(structuredOutput: unknown): ClaudeEnvelope {
   return {
     type: 'result',
@@ -28,6 +40,23 @@ function envelope(structuredOutput: unknown): ClaudeEnvelope {
   };
 }
 
+const blockOutput = {
+  summary: 'Bad.',
+  findings: [
+    {
+      file: 'hello.js',
+      line: 1,
+      severity: 'blocker',
+      title: 't',
+      what: 'w',
+      why: 'y',
+      fixes: ['f'],
+      confidence: 'high',
+    },
+  ],
+  questions: [],
+};
+
 describe('cacheKey', () => {
   it('is stable for identical inputs and sensitive to both parts', () => {
     const key = cacheKey(baseParts);
@@ -38,25 +67,26 @@ describe('cacheKey', () => {
 });
 
 describe('cache store', () => {
-  it('lives inside the git dir and round-trips a pass', async () => {
+  it('lives inside the git dir and round-trips an entry', async () => {
     const repo = await makeRepo();
     const dir = await cacheDir(repo);
     expect(dir).toContain(path.join('.git', 'agentlint', 'cache'));
 
     const key = cacheKey(baseParts);
-    await writeCachedPass(dir, key, passResult);
-    expect(await readCachedPass(dir, key)).toEqual(passResult);
-    expect(await readCachedPass(dir, 'unknown-key')).toBeUndefined();
+    await writeCache(dir, key, entry(passResult));
+    expect(await readCache(dir, key)).toEqual(entry(passResult));
+    expect(await readCache(dir, 'unknown-key')).toBeUndefined();
   });
 
-  it('never stores a block verdict', async () => {
+  it('stores blocks too, so an ignore has a finding to attach to', async () => {
     const repo = await makeRepo();
     const dir = await cacheDir(repo);
     const key = cacheKey(baseParts);
+    const blockEntry = entry({ ...passResult, verdict: 'block' });
 
-    await writeCachedPass(dir, key, { ...passResult, verdict: 'block' });
+    await writeCache(dir, key, blockEntry);
 
-    expect(await readCachedPass(dir, key)).toBeUndefined();
+    expect(await readCache(dir, key)).toEqual(blockEntry);
   });
 });
 
@@ -85,7 +115,6 @@ describe('runReview caching', () => {
     await runReview({ cwd: repo, profile: 'standard', engine });
     const quickRun = await runReview({ cwd: repo, profile: 'quick', engine });
 
-    // Different model + behaviour => different key => a real second run.
     expect(quickRun).toMatchObject({ kind: 'reviewed', cached: false, profile: 'quick' });
     expect(engine).toHaveBeenCalledTimes(2);
   });
@@ -103,37 +132,23 @@ describe('runReview caching', () => {
     expect(engine).toHaveBeenCalledTimes(2);
   });
 
-  it('does not cache blocks, and honors noCache', async () => {
+  it('serves a repeated block from the cache, and honors noCache', async () => {
     const repo = await makeRepo();
     await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
-    const block = {
-      verdict: 'block',
-      summary: 'Bad.',
-      findings: [
-        {
-          file: 'hello.js',
-          line: 1,
-          severity: 'blocker',
-          title: 't',
-          what: 'w',
-          why: 'y',
-          fixes: ['f'],
-          confidence: 'high',
-        },
-      ],
-      questions: [],
-    };
-    const engine = vi.fn().mockResolvedValue(envelope(block));
+    const engine = vi.fn().mockResolvedValue(envelope(blockOutput));
 
-    await runReview({ cwd: repo, engine });
-    await runReview({ cwd: repo, engine });
-    expect(engine).toHaveBeenCalledTimes(2); // blocks are always re-run
+    const first = await runReview({ cwd: repo, engine });
+    if (first.kind !== 'reviewed') throw new Error('unreachable');
+    expect(first.result.verdict).toBe('block');
+    expect(engine).toHaveBeenCalledTimes(1);
 
-    engine.mockResolvedValue(envelope(passResult));
-    await runReview({ cwd: repo, engine });
+    const second = await runReview({ cwd: repo, engine });
+    expect(second).toMatchObject({ cached: true });
+    expect(engine).toHaveBeenCalledTimes(1); // the block is served from cache
+
     const bypass = await runReview({ cwd: repo, engine, noCache: true });
     expect(bypass).toMatchObject({ cached: false });
-    expect(engine).toHaveBeenCalledTimes(4);
+    expect(engine).toHaveBeenCalledTimes(2);
   });
 
   it('never caches snapshot reviews', async () => {

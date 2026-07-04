@@ -3,12 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   type Finding,
   deriveVerdict,
-  reviewResultSchema,
   reviewerOutputJsonSchema,
+  reviewerOutputSchema,
 } from '../../src/schema.js';
 
 const valid = {
-  verdict: 'block',
   summary: 'One bug found.',
   findings: [
     {
@@ -25,9 +24,9 @@ const valid = {
   questions: [],
 };
 
-describe('reviewResultSchema', () => {
-  it('accepts a well-formed result', () => {
-    expect(reviewResultSchema.safeParse(valid).success).toBe(true);
+describe('reviewerOutputSchema', () => {
+  it('accepts a well-formed reviewer output', () => {
+    expect(reviewerOutputSchema.safeParse(valid).success).toBe(true);
   });
 
   it('tolerates extra keys from the model instead of failing the review', () => {
@@ -36,7 +35,7 @@ describe('reviewResultSchema', () => {
       reviewer_notes: 'extra top-level key',
       findings: [{ ...valid.findings[0], suggestion: 'extra finding key' }],
     };
-    expect(reviewResultSchema.safeParse(withExtras).success).toBe(true);
+    expect(reviewerOutputSchema.safeParse(withExtras).success).toBe(true);
   });
 
   it('rejects a finding without fixes', () => {
@@ -44,7 +43,7 @@ describe('reviewResultSchema', () => {
       ...valid,
       findings: [{ ...valid.findings[0], fixes: [] }],
     };
-    expect(reviewResultSchema.safeParse(noFixes).success).toBe(false);
+    expect(reviewerOutputSchema.safeParse(noFixes).success).toBe(false);
   });
 
   it('rejects unknown severities', () => {
@@ -52,7 +51,7 @@ describe('reviewResultSchema', () => {
       ...valid,
       findings: [{ ...valid.findings[0], severity: 'catastrophic' }],
     };
-    expect(reviewResultSchema.safeParse(bad).success).toBe(false);
+    expect(reviewerOutputSchema.safeParse(bad).success).toBe(false);
   });
 
   it('exports a CLI JSON Schema WITHOUT verdict — the reviewer no longer authors it', () => {

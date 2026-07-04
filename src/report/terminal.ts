@@ -1,14 +1,16 @@
 import pc from 'picocolors';
 
-import type { Finding, ReviewResult, Severity } from '../schema.js';
+import type { ResolvedFinding, ReviewResult, Severity } from '../schema.js';
 
 export interface RunMeta {
   costUsd?: number;
   durationMs?: number;
   profile?: string;
   refutedCount?: number;
-  /** The verdict came from the pass cache, not a live run. */
+  /** The verdict came from the cache, not a live run. */
   cached?: boolean;
+  /** The run's cache key; shown so `ignore --run` has a handle. */
+  runId?: string;
 }
 
 const severityLabel: Record<Severity, string> = {
@@ -60,14 +62,27 @@ export function renderTerminalReport(result: ReviewResult, meta: RunMeta = {}): 
   if (meta.costUsd !== undefined) metaParts.push(`$${meta.costUsd.toFixed(4)}`);
   if (metaParts.length > 0) lines.push(pc.dim(metaParts.join('  ·  ')));
 
+  if (result.findings.length > 0 && meta.runId) {
+    lines.push(
+      pc.dim(
+        `Dismiss a false positive: agentlint ignore <id> "reason"   ·   run ${meta.runId.slice(0, 12)}`,
+      ),
+    );
+  }
+
   return lines.join('\n');
 }
 
-function renderFinding(f: Finding): string[] {
+function renderFinding(f: ResolvedFinding): string[] {
+  const id = pc.dim(`[${f.id}]`);
+  if (f.resolution.state === 'ignored') {
+    const reason = f.resolution.reason ? `: ${f.resolution.reason}` : '';
+    return [pc.dim(`— ${f.severity} ${f.title} ${id} (ignored${reason})`)];
+  }
   const location = f.line === null ? f.file : `${f.file}:${f.line}`;
   const confidence = f.confidence === 'high' ? '' : pc.dim(` (confidence: ${f.confidence})`);
   const lines = [
-    `${severityLabel[f.severity]}  ${pc.bold(f.title)}${confidence}`,
+    `${severityLabel[f.severity]}  ${pc.bold(f.title)}${confidence}  ${id}`,
     `  ${pc.underline(location)}`,
     `  ${f.what}`,
     `  ${pc.dim('why:')} ${f.why}`,

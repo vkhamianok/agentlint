@@ -9,6 +9,8 @@ const result: ReviewResult = {
   summary: 'One real bug.',
   findings: [
     {
+      id: 'aaaa1111',
+      resolution: { state: 'open' },
       file: 'src/a.ts',
       line: 12,
       severity: 'blocker',
@@ -19,6 +21,8 @@ const result: ReviewResult = {
       confidence: 'high',
     },
     {
+      id: 'bbbb2222',
+      resolution: { state: 'open' },
       file: 'src/b.ts',
       line: null,
       severity: 'info',

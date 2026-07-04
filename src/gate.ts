@@ -1,11 +1,10 @@
-import { type ReviewResult, type Severity, severityRank } from './schema.js';
+import type { ReviewResult } from './schema.js';
 
 /**
- * Deterministic gate: blocks when the reviewer says "block" or when any
- * finding reaches the failOn threshold. Like eslint: 0 = pass, 1 = block.
+ * Deterministic gate: 0 = pass, 1 = block, like eslint. The verdict is already
+ * derived from the findings' severity, failOn, and any ignore resolutions
+ * (see deriveVerdict), so the gate simply reads it — one source of truth.
  */
-export function gateExitCode(result: ReviewResult, failOn: Severity = 'blocker'): 0 | 1 {
-  if (result.verdict === 'block') return 1;
-  const threshold = severityRank(failOn);
-  return result.findings.some((f) => severityRank(f.severity) >= threshold) ? 1 : 0;
+export function gateExitCode(result: ReviewResult): 0 | 1 {
+  return result.verdict === 'block' ? 1 : 0;
 }

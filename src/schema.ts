@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 
 export const severities = ['info', 'warning', 'blocker'] as const;
@@ -38,18 +40,49 @@ export const reviewerOutputSchema = z.looseObject({
     .describe('Genuine forks the reviewer could not decide alone; empty if none'),
 });
 
+// What an actor (human or agent) decided about a finding or a whole run. The
+// same shape at both levels: open by default, or ignored with a reason and an
+// audit trail. See docs/design-verdict-and-resolution.md.
+export const resolutionSchema = z.looseObject({
+  state: z.enum(['open', 'ignored']),
+  reason: z.string().optional(),
+  by: z.string().optional(),
+  at: z.string().optional(),
+});
+
+// A stored finding: the reviewer's finding plus a stable id (so an ignore can
+// point at it) and its resolution. The id and resolution are added by us, not
+// authored by the model.
+export const resolvedFindingSchema = z.looseObject({
+  ...findingSchema.shape,
+  id: z.string(),
+  resolution: resolutionSchema,
+});
+
 // The stored and rendered result: the reviewer's output plus the verdict we
-// derive from it. Cache entries and reports use this shape.
+// derive from it, the resolved findings, and an optional whole-run resolution.
+// Cache entries and reports use this shape.
 export const reviewResultSchema = z.looseObject({
   verdict: z.enum(['pass', 'block']),
   summary: z.string(),
-  findings: z.array(findingSchema),
+  findings: z.array(resolvedFindingSchema),
   questions: z.array(z.string()),
+  resolution: resolutionSchema.optional(),
 });
 
 export type Finding = z.infer<typeof findingSchema>;
+export type Resolution = z.infer<typeof resolutionSchema>;
+export type ResolvedFinding = z.infer<typeof resolvedFindingSchema>;
 export type ReviewerOutput = z.infer<typeof reviewerOutputSchema>;
 export type ReviewResult = z.infer<typeof reviewResultSchema>;
+
+/** A stable short id for a finding, derived from its content (like a short sha). */
+export function findingId(f: Finding): string {
+  return createHash('sha256')
+    .update(JSON.stringify([f.file, f.line, f.severity, f.title, f.what]))
+    .digest('hex')
+    .slice(0, 8);
+}
 
 /**
  * Converts a zod schema into JSON Schema for the claude CLI's --json-schema.
@@ -82,10 +115,20 @@ export function severityRank(s: Severity): number {
 
 /**
  * The gate outcome, derived from the findings — never authored by the reviewer.
- * Block when any finding reaches the failOn threshold; pass otherwise. (Ignored
- * findings will drop out here once resolutions exist; see the design note.)
+ * An ignored run passes outright; otherwise it blocks when any OPEN finding
+ * reaches the failOn threshold. Findings without a resolution count as open, so
+ * this works for both reviewer findings and resolved ones.
  */
-export function deriveVerdict(findings: Finding[], failOn: Severity): 'pass' | 'block' {
+export function deriveVerdict(
+  findings: Array<{ severity: Severity; resolution?: Resolution }>,
+  failOn: Severity,
+  runResolution?: Resolution,
+): 'pass' | 'block' {
+  if (runResolution?.state === 'ignored') return 'pass';
   const threshold = severityRank(failOn);
-  return findings.some((f) => severityRank(f.severity) >= threshold) ? 'block' : 'pass';
+  return findings.some(
+    (f) => f.resolution?.state !== 'ignored' && severityRank(f.severity) >= threshold,
+  )
+    ? 'block'
+    : 'pass';
 }

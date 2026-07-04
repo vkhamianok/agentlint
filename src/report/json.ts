@@ -4,10 +4,12 @@ export interface ReportMeta {
   target: string;
   profile?: string;
   refutedCount?: number;
-  /** The verdict came from the pass cache, not a live run. */
+  /** The verdict came from the cache, not a live run. */
   cached?: boolean;
   costUsd?: number;
   durationMs?: number;
+  /** The run's cache key; the handle `ignore --run` points at. */
+  runId?: string;
 }
 
 /** Stable machine-readable report shape; bump version on breaking changes. */
@@ -26,5 +28,6 @@ export function buildJsonReport(result: ReviewResult, meta: ReportMeta): object 
     cached: meta.cached ?? false,
     costUsd: meta.costUsd,
     durationMs: meta.durationMs,
+    runId: meta.runId,
   };
 }

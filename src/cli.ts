@@ -11,6 +11,7 @@ import { ConfigError, DEFAULT_CONFIG, loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
 import { runFixes } from './fix.js';
 import { gateExitCode } from './gate.js';
+import { ignoreFinding, ignoreRun } from './ignore-commands.js';
 import { initProject } from './init.js';
 import { collectAnswers, confirmFindings } from './interactive.js';
 import {
@@ -456,6 +457,26 @@ scopeCommand
     }
   });
 
+program
+  .command('ignore')
+  .description('dismiss a false-positive finding (or a whole run) with a reason')
+  .argument('<id>', 'a finding id from the report, or a run id with --run')
+  .argument('<reason...>', 'why it is safe to ignore — recorded for audit')
+  .option('--run', 'ignore the whole run named by <id>, not a single finding')
+  .action(async (id: string, reasonWords: string[], opts: { run?: boolean }) => {
+    const repoRoot = await resolveRepoRoot(process.cwd());
+    const reason = reasonWords.join(' ');
+    const res = opts.run
+      ? await ignoreRun(repoRoot, id, reason)
+      : await ignoreFinding(repoRoot, id, reason);
+    console.log(pc.green(`Ignored ${res.scope} ${res.id}`) + pc.dim(` — ${res.title}`));
+    console.log(
+      res.verdict === 'pass'
+        ? pc.dim('The run now passes; re-run the review (or retry the commit) to proceed.')
+        : pc.dim('The run still blocks on other open findings; address or ignore those too.'),
+    );
+  });
+
 /**
  * Escape hatch for hooks (like HUSKY=0): a blocked commit sometimes must
  * land anyway, and --no-verify skips every hook, not just this one.
@@ -497,7 +518,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
     return;
   }
   if (!jsonOnly) renderOutcome(outcome);
-  let exitCode: number = gateExitCode(outcome.result, outcome.failOn);
+  let exitCode: number = gateExitCode(outcome.result);
 
   if (exitCode !== 0 && opts.fix) {
     const repoRoot = await resolveRepoRoot(process.cwd());
@@ -537,7 +558,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
         return;
       }
       if (!jsonOnly) renderOutcome(outcome);
-      exitCode = gateExitCode(outcome.result, outcome.failOn);
+      exitCode = gateExitCode(outcome.result);
     } else if (!jsonOnly) {
       console.log(pc.dim('No findings confirmed; nothing to fix.'));
     }
@@ -568,6 +589,7 @@ function renderOutcome(outcome: Extract<ReviewRunOutcome, { kind: 'reviewed' }>)
       profile: outcome.profile,
       refutedCount: outcome.refutedCount,
       cached: outcome.cached,
+      runId: outcome.runId,
     }),
   );
 }
@@ -597,7 +619,7 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
 
   if (opts.report !== '-') renderOutcome(outcome);
   await writeReports(outcome, opts);
-  process.exitCode = gateExitCode(outcome.result, outcome.failOn);
+  process.exitCode = gateExitCode(outcome.result);
 }
 
 async function resolveTask(opts: ReviewCliOptions): Promise<string | undefined> {
@@ -629,6 +651,7 @@ async function writeReports(
     cached: outcome.cached,
     costUsd: outcome.costUsd,
     durationMs: outcome.durationMs,
+    runId: outcome.runId,
   };
   const stdout = await emitReports(outcome.result, meta, opts);
   if (stdout) console.log(stdout);
