@@ -24,6 +24,17 @@ New:
   supplementary focus lens. `--scope` and `--profile` compose:
   `review snapshot --scope orchestrator --profile audit`.
 
+Fixed:
+
+- The diff-only `quick` profile no longer reports phantom blockers about code
+  it cannot see. A diff shows changed lines with only a little surrounding
+  context, so a symbol may be declared just outside the visible hunk; the
+  reviewer was treating an assumption about such a symbol as a verified bug. It
+  is now told plainly: judge on the shown evidence, and if a finding depends on
+  the definition of a symbol that is not shown, lower confidence or raise a
+  question instead of blocking. (Found by dogfooding — this class of false
+  positive had blocked a correct commit.)
+
 ## 0.3.0 — 2026-07-03
 
 **Breaking config changes** (0.2.0 configs need updating; the validator

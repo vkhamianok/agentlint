@@ -45,7 +45,7 @@ export function buildReviewPrompt(ctx: PromptContext): ReviewPrompt {
     `Review the following change: ${ctx.changeSet.description}.`,
     canExplore
       ? 'You are running inside the repository, so you can read any file for context.'
-      : 'You see only the diff and file contents included below. Judge on this evidence alone and do not assume anything about files you cannot see.',
+      : 'You see only the diff and file contents included below — not whole files. A diff shows changed lines with limited surrounding context, so a variable, type, or function used here may be declared just outside what you can see. Judge on this evidence alone: do not assume how code you cannot see is defined or behaves. If a finding depends on the definition of a symbol that is not shown, do not report it as a blocker — lower its confidence or raise it as a question instead.',
     renderTask(ctx.task),
   ];
 
