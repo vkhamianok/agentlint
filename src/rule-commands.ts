@@ -130,7 +130,7 @@ export async function editRule(opts: {
 }
 
 /** Removes a rule file; the explicit command is the confirmation. */
-export async function deleteRule(targetDir: string, slug: string): Promise<string> {
+export async function removeRule(targetDir: string, slug: string): Promise<string> {
   const file = await resolveExistingRule(targetDir, slug);
   await rm(file);
   return file;

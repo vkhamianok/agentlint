@@ -148,7 +148,7 @@ agentlint rule list      # every rule a review of this project would use
 agentlint rule add all methods and functions must start with a verb
 agentlint rule add --global --severity blocker никаких console.log в коде
 agentlint rule edit verb-function-names allow noun names for factories
-agentlint rule delete verb-function-names
+agentlint rule remove verb-function-names
 agentlint rule check     # audit the set: contradictions, duplication, noise risks
 ```
 
@@ -177,6 +177,28 @@ budgets it. Three are built in:
 `defaultProfile` maps the run context (manual TTY / hook / CI) to its
 profile; `--profile <name>` overrides it. The set is open — see
 [Custom profiles](#custom-profiles) to add your own.
+
+### Managing profiles
+
+You do not have to hand-edit the config. Describe a profile in any language
+and agentlint picks a fitting model and budget and writes its focus
+`instructions` for you, editing `.agentlint/config.json` in place while
+leaving the rest of the file untouched:
+
+```sh
+agentlint profile list      # built-ins plus your custom profiles
+agentlint profile add security audit on the strongest model, hunting for injection and secrets
+agentlint profile edit audit also check authorization on every route
+agentlint profile remove audit
+```
+
+`--global` targets `~/.agentlint/config.json`; `--model` and `--name`
+override what the generator picks. Built-in profiles can be tuned with
+`profile edit` but not removed. Then run a review under a custom profile:
+
+```sh
+agentlint review snapshot --profile audit --report-md audit.md
+```
 
 ## Fixing
 

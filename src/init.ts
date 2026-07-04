@@ -34,7 +34,7 @@ Manage rules with plain-language commands:
 \`\`\`sh
 npx agentlint rule add <describe what the rule should enforce>
 npx agentlint rule edit <slug> <what to change>
-npx agentlint rule delete <slug>
+npx agentlint rule remove <slug>
 \`\`\`
 
 Format reference: https://github.com/vkhamianok/agentlint/tree/master/rules

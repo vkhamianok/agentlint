@@ -17,13 +17,15 @@ export class ConfigError extends Error {
 // A model name reaches the CLI as a spawn argument. Config is untrusted
 // repository content, so restrict it to the characters real model aliases
 // and full names use — no shell metacharacters can ride in through it.
+export const MODEL_NAME_PATTERN = /^[A-Za-z0-9._:-]+$/;
 const modelName = z
   .string()
-  .regex(/^[A-Za-z0-9._:-]+$/, 'model may only contain letters, digits, and . _ : -');
+  .regex(MODEL_NAME_PATTERN, 'model may only contain letters, digits, and . _ : -');
 
+export const PROFILE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 const profileName = z
   .string()
-  .regex(/^[a-z][a-z0-9-]*$/, 'profile names are lower-case kebab, e.g. "audit"');
+  .regex(PROFILE_NAME_PATTERN, 'profile names are lower-case kebab, e.g. "audit"');
 
 const profileOverrideSchema = z.strictObject({
   model: modelName.optional(),
@@ -57,7 +59,39 @@ const configFileSchema = z.strictObject({
   inheritGlobalRules: z.boolean().optional(),
 });
 
-type ConfigFile = z.infer<typeof configFileSchema>;
+export type ConfigFile = z.infer<typeof configFileSchema>;
+
+/**
+ * The one validation path, shared by the loader and any writer, so a config
+ * the loader would reject can never be written in the first place.
+ */
+export function parseConfigFile(json: unknown, file: string): ConfigFile {
+  const parsed = configFileSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new ConfigError(`Invalid config ${file}: ${parsed.error.message}`);
+  }
+  return parsed.data;
+}
+
+/** Reads and JSON-parses a config file, or undefined if it does not exist. */
+export async function readConfigJson(file: string): Promise<unknown | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(file, 'utf8');
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+    throw new ConfigError(
+      `Cannot read config ${file}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new ConfigError(`Config ${file} is not valid JSON.`);
+  }
+}
 
 export interface ProfileSettings {
   model: string;
@@ -168,30 +202,9 @@ function mergeProfiles(
 }
 
 async function readConfigFile(file: string): Promise<ConfigFile | undefined> {
-  let raw: string;
-  try {
-    raw = await readFile(file, 'utf8');
-  } catch (err) {
-    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return undefined;
-    }
-    throw new ConfigError(
-      `Cannot read config ${file}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  let json: unknown;
-  try {
-    json = JSON.parse(raw);
-  } catch {
-    throw new ConfigError(`Config ${file} is not valid JSON.`);
-  }
-
-  const parsed = configFileSchema.safeParse(json);
-  if (!parsed.success) {
-    // A typo'd key or value silently ignored would mean config that never
-    // takes effect — fail loudly, like the rules loader does.
-    throw new ConfigError(`Invalid config ${file}: ${parsed.error.message}`);
-  }
-  return parsed.data;
+  const json = await readConfigJson(file);
+  if (json === undefined) return undefined;
+  // A typo'd key or value silently ignored would mean config that never
+  // takes effect — fail loudly, like the rules loader does.
+  return parseConfigFile(json, file);
 }

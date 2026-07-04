@@ -6,7 +6,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ClaudeEnvelope } from '../../src/engine/claude.js';
-import { addRule, deleteRule, editRule } from '../../src/rule-commands.js';
+import { addRule, editRule, removeRule } from '../../src/rule-commands.js';
 import { RuleError } from '../../src/rules.js';
 
 function envelope(structuredOutput: unknown): ClaudeEnvelope {
@@ -186,7 +186,7 @@ describe('addRule', () => {
 
   it('refuses slugs that escape the rules directory', async () => {
     const targetDir = await makeTarget();
-    await expect(deleteRule(targetDir, '../outside')).rejects.toThrow(/Invalid rule slug/);
+    await expect(removeRule(targetDir, '../outside')).rejects.toThrow(/Invalid rule slug/);
   });
 
   it('deletes an existing rule and errors loudly on a missing one', async () => {
@@ -194,11 +194,11 @@ describe('addRule', () => {
     const engine = vi.fn().mockResolvedValue(envelope(generated));
     await addRule({ engine, description: 'x', targetDir, model: 'sonnet', cwd: targetDir });
 
-    const file = await deleteRule(targetDir, 'verb-function-names');
+    const file = await removeRule(targetDir, 'verb-function-names');
     expect(file).toBe(path.join(targetDir, 'verb-function-names.md'));
     await expect(readFile(file, 'utf8')).rejects.toThrow();
 
-    await expect(deleteRule(targetDir, 'verb-function-names')).rejects.toThrow(/not found/);
+    await expect(removeRule(targetDir, 'verb-function-names')).rejects.toThrow(/not found/);
   });
 
   it('lists the effective rule set with sources, severities, and titles', async () => {

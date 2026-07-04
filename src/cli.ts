@@ -13,12 +13,19 @@ import { runFixes } from './fix.js';
 import { gateExitCode } from './gate.js';
 import { initProject } from './init.js';
 import { collectAnswers, confirmFindings } from './interactive.js';
+import {
+  type WrittenProfile,
+  addProfile,
+  editProfile,
+  listProfiles,
+  removeProfile,
+} from './profile-commands.js';
 import { BUILTIN_PROFILES, detectContext } from './profiles.js';
 import type { ReportMeta } from './report/json.js';
 import { renderTerminalReport } from './report/terminal.js';
 import { emitReports } from './report/write.js';
 import { type ReviewRunOutcome, runReview } from './review.js';
-import { addRule, checkRules, deleteRule, editRule, listRules } from './rule-commands.js';
+import { addRule, checkRules, editRule, listRules, removeRule } from './rule-commands.js';
 import { RuleError } from './rules.js';
 import { type Severity, severities, severityRank } from './schema.js';
 import { TargetError, type TargetSpec, resolveRepoRoot } from './targets.js';
@@ -310,14 +317,115 @@ ruleCommand
   });
 
 ruleCommand
-  .command('delete')
-  .description('delete a rule file')
+  .command('remove')
+  .description('remove a rule file')
   .argument('<slug>', 'rule file name without .md')
-  .option('--global', 'delete from ~/.agentlint/rules instead of this project')
+  .option('--global', 'remove from ~/.agentlint/rules instead of this project')
   .action(async (slug: string, opts: { global?: boolean }) => {
     const target = await ruleTarget(opts.global);
-    const file = await deleteRule(target.dir, slug);
-    console.log(pc.green(`Deleted ${file}`));
+    const file = await removeRule(target.dir, slug);
+    console.log(pc.green(`Removed ${file}`));
+  });
+
+const profileCommand = program.command('profile').description('manage review profiles');
+
+/** The config file the profile commands read and write. */
+async function profileConfigPath(global: boolean | undefined): Promise<string> {
+  const dir = global ? os.homedir() : await resolveRepoRoot(process.cwd());
+  return path.join(dir, '.agentlint', 'config.json');
+}
+
+/** The model that writes the generated text — the standard profile's. */
+async function generatorModel(global: boolean | undefined): Promise<string> {
+  // --global runs outside any repo, so there is no project config to merge;
+  // the shipped default is the right generation model there.
+  if (global) return DEFAULT_CONFIG.profiles.standard.model;
+  return (await loadConfig(await resolveRepoRoot(process.cwd()))).profiles.standard.model;
+}
+
+function printProfile(written: WrittenProfile): void {
+  console.log(pc.green(`Wrote profile "${written.name}" to ${written.file}`) + '\n');
+  console.log(JSON.stringify(written.entry, null, 2));
+}
+
+profileCommand
+  .command('add')
+  .description('generate a review profile from a plain-language description')
+  .argument('<description...>', 'what the profile is for, in any language')
+  .option('--global', 'write to ~/.agentlint/config.json instead of this project')
+  .option('--model <model>', 'force the profile model instead of letting the generator pick')
+  .option('--name <name>', 'kebab-case profile name (default: derived from the description)')
+  .action(
+    async (
+      descriptionWords: string[],
+      opts: { global?: boolean; model?: string; name?: string },
+    ) => {
+      const written = await withProgress('agentlint profile add', async () =>
+        addProfile({
+          engine: runClaude,
+          description: descriptionWords.join(' '),
+          configPath: await profileConfigPath(opts.global),
+          generatorModel: await generatorModel(opts.global),
+          model: opts.model,
+          name: opts.name,
+          cwd: process.cwd(),
+        }),
+      );
+      printProfile(written);
+    },
+  );
+
+profileCommand
+  .command('edit')
+  .description('rewrite an existing profile per a plain-language instruction')
+  .argument('<name>', 'profile name')
+  .argument('<instruction...>', 'what to change, in any language')
+  .option('--global', 'edit in ~/.agentlint/config.json instead of this project')
+  .option('--model <model>', 'force the profile model')
+  .action(
+    async (
+      name: string,
+      instructionWords: string[],
+      opts: { global?: boolean; model?: string },
+    ) => {
+      const written = await withProgress('agentlint profile edit', async () =>
+        editProfile({
+          engine: runClaude,
+          name,
+          instruction: instructionWords.join(' '),
+          configPath: await profileConfigPath(opts.global),
+          generatorModel: await generatorModel(opts.global),
+          model: opts.model,
+          cwd: process.cwd(),
+        }),
+      );
+      printProfile(written);
+    },
+  );
+
+profileCommand
+  .command('remove')
+  .description('remove a custom profile (built-ins cannot be removed)')
+  .argument('<name>', 'profile name')
+  .option('--global', 'remove from ~/.agentlint/config.json instead of this project')
+  .action(async (name: string, opts: { global?: boolean }) => {
+    await removeProfile(await profileConfigPath(opts.global), name);
+    console.log(pc.green(`Removed profile "${name}"`));
+  });
+
+profileCommand
+  .command('list')
+  .description('list the effective profiles: built-ins plus custom')
+  .action(async () => {
+    const repoRoot = await resolveRepoRoot(process.cwd());
+    const profiles = await listProfiles(repoRoot);
+    const nameWidth = Math.max(...profiles.map((p) => p.name.length));
+    for (const p of profiles) {
+      const focus = p.hasInstructions ? pc.cyan('custom focus') : pc.dim('general');
+      console.log(
+        `${pc.dim(p.source.padEnd(9))}  ${p.name.padEnd(nameWidth)}  ${p.model.padEnd(16)}  $${p.budgetUsd}  ${focus}`,
+      );
+    }
   });
 
 /**
