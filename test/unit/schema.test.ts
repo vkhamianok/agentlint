@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { reviewResultJsonSchema, reviewResultSchema } from '../../src/schema.js';
+import {
+  type Finding,
+  deriveVerdict,
+  reviewResultSchema,
+  reviewerOutputJsonSchema,
+} from '../../src/schema.js';
 
 const valid = {
   verdict: 'block',
@@ -50,14 +55,33 @@ describe('reviewResultSchema', () => {
     expect(reviewResultSchema.safeParse(bad).success).toBe(false);
   });
 
-  it('exports a JSON Schema for the CLI with the same required fields', () => {
-    const json = reviewResultJsonSchema as { required?: string[] };
-    expect(json.required).toEqual(
-      expect.arrayContaining(['verdict', 'summary', 'findings', 'questions']),
-    );
+  it('exports a CLI JSON Schema WITHOUT verdict — the reviewer no longer authors it', () => {
+    const json = reviewerOutputJsonSchema as { required?: string[] };
+    expect(json.required).toEqual(expect.arrayContaining(['summary', 'findings', 'questions']));
+    expect(json.required).not.toContain('verdict');
   });
 
   it('strips the $schema key that breaks StructuredOutput in claude CLI 2.1.198', () => {
-    expect(reviewResultJsonSchema).not.toHaveProperty('$schema');
+    expect(reviewerOutputJsonSchema).not.toHaveProperty('$schema');
+  });
+});
+
+describe('deriveVerdict', () => {
+  const finding = (severity: Finding['severity']): Finding => ({
+    file: 'a.ts',
+    line: 1,
+    severity,
+    title: 't',
+    what: 'w',
+    why: 'y',
+    fixes: ['f'],
+    confidence: 'high',
+  });
+
+  it('blocks when a finding reaches the failOn threshold, passes otherwise', () => {
+    expect(deriveVerdict([finding('blocker')], 'blocker')).toBe('block');
+    expect(deriveVerdict([finding('warning')], 'blocker')).toBe('pass'); // the README case
+    expect(deriveVerdict([finding('warning')], 'warning')).toBe('block');
+    expect(deriveVerdict([], 'info')).toBe('pass');
   });
 });

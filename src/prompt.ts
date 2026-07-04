@@ -12,8 +12,8 @@ concrete candidate fixes the author can act on immediately.
 
 Severities: "blocker" = wrong or harmful, must not be committed as is;
 "warning" = defensible but risky or clearly sub-par; "info" = worth knowing.
-
-Set verdict to "block" if any blocker exists, otherwise "pass".
+Rate each finding honestly by severity; the gate decides pass or block from
+the severities, so you do not report an overall verdict.
 Put genuine open forks (two defensible options, unclear intent) in "questions";
 do not turn them into findings.
 

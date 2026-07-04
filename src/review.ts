@@ -13,10 +13,11 @@ import {
   type Finding,
   type ReviewResult,
   type Severity,
+  deriveVerdict,
   refutationJsonSchema,
   refutationSchema,
-  reviewResultJsonSchema,
-  reviewResultSchema,
+  reviewerOutputJsonSchema,
+  reviewerOutputSchema,
   severityRank,
 } from './schema.js';
 import {
@@ -78,6 +79,9 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   const config = await loadConfig(repoRoot);
   const profileName = resolveProfileName(opts, config);
   const profile = resolveProfile(profileName, config);
+  // failOn decides pass/block, so it shapes the verdict and belongs in the
+  // cache key (below) — a stricter threshold must not reuse a laxer pass.
+  const failOn = opts.failOn ?? config.failOn;
   opts.onStart?.({ profile: profileName, model: profile.model });
   const target: TargetSpec = opts.target ?? { kind: 'working-tree' };
 
@@ -131,6 +135,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
       profile.promptFocus ?? '',
       profile.tools.length > 0,
       profile.refute,
+      failOn,
     ]),
   });
   const cachePath = cacheable ? await cacheDir(repoRoot) : undefined;
@@ -140,7 +145,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
       return {
         kind: 'reviewed',
         result: cachedResult,
-        failOn: opts.failOn ?? config.failOn,
+        failOn,
         target: changeSet.description,
         profile: profileName,
         refutedCount: 0,
@@ -155,7 +160,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     prompt,
     appendSystemPrompt,
     cwd: repoRoot,
-    jsonSchema: reviewResultJsonSchema,
+    jsonSchema: reviewerOutputJsonSchema,
     tools: profile.tools,
     model: profile.model,
     maxTurns: profile.maxTurns,
@@ -179,7 +184,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
         'its faithful conversion: same findings, same severities, same fixes. ' +
         'Do not add, drop, or soften anything. Do not reply with text.\n\n' +
         envelope.result,
-      jsonSchema: reviewResultJsonSchema,
+      jsonSchema: reviewerOutputJsonSchema,
       tools: [],
       model: 'haiku',
       maxTurns: 4,
@@ -194,7 +199,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   // The schema was enforced CLI-side; this parse is a local guard against
   // contract drift. Failure means a broken engine, not a review verdict —
   // surface it as an engine error (exit 2), never a silent pass.
-  const parsed = reviewResultSchema.safeParse(structured);
+  const parsed = reviewerOutputSchema.safeParse(structured);
   if (!parsed.success) {
     throw new ClaudeEngineError(
       'Reviewer output did not match the findings schema',
@@ -202,25 +207,25 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     );
   }
 
-  let result = parsed.data;
+  const output = parsed.data;
+  let findings: Finding[] = output.findings;
   let refutedCount = 0;
-  if (profile.refute && result.findings.length > 0) {
-    const refutation = await refuteFindings(engine, repoRoot, profile, changeSet, result.findings);
-    refutedCount = result.findings.length - refutation.kept.length;
+  if (profile.refute && findings.length > 0) {
+    const refutation = await refuteFindings(engine, repoRoot, profile, changeSet, findings);
+    refutedCount = findings.length - refutation.kept.length;
     costUsd += refutation.costUsd;
-
-    // Downgrade block→pass only when the block rested on blocker findings and
-    // none survived refutation. An explicit block on non-blocker grounds, or a
-    // surviving blocker, stands — so the refutation pass (deep, custom) is
-    // never more lenient than the raw verdict for reasons it did not touch.
-    const hadBlocker = result.findings.some((f) => f.severity === 'blocker');
-    const keepsBlocker = refutation.kept.some((f) => f.severity === 'blocker');
-    result = {
-      ...result,
-      findings: refutation.kept,
-      verdict: result.verdict === 'block' && hadBlocker && !keepsBlocker ? 'pass' : result.verdict,
-    };
+    findings = refutation.kept;
   }
+
+  // The reviewer reports and rates; the gate decides. Refutation only removes
+  // findings — the verdict follows from whatever survives, so a refuted-away
+  // blocker turns the run to pass on its own, with no special-case downgrade.
+  const result: ReviewResult = {
+    verdict: deriveVerdict(findings, failOn),
+    summary: output.summary,
+    findings,
+    questions: output.questions,
+  };
 
   if (cachePath && result.verdict === 'pass') {
     // Caching is an optimization, never part of the verdict: a failed write
@@ -238,7 +243,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   return {
     kind: 'reviewed',
     result,
-    failOn: opts.failOn ?? config.failOn,
+    failOn,
     target: changeSet.description,
     profile: profileName,
     refutedCount,

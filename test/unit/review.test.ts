@@ -336,14 +336,16 @@ describe('runReview', () => {
     expect(outcome.refutedCount).toBe(1);
   });
 
-  it('keeps an explicit block that rested on non-blocker findings (deep is not more lenient)', async () => {
+  it('derives the verdict from severity, not from an authored one (the README false-block)', async () => {
     const repo = await makeRepo();
     await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
-    // A "block" verdict with only a warning finding: the schema allows this
-    // drift, and refuting an unrelated finding must not flip block → pass.
-    const review = {
-      verdict: 'block',
-      summary: 'Blocking on judgment, not a blocker finding.',
+    // The reviewer no longer authors a verdict. Even if the model emits one
+    // (loose schema ignores it), the gate derives pass because the only finding
+    // is a warning, below the default blocker threshold. This is exactly the
+    // false block that stopped a correct commit.
+    const warningOnly = {
+      verdict: 'block', // ignored: reviewer output carries no verdict now
+      summary: 'A stylistic nit, nothing that should block.',
       findings: [
         {
           file: 'hello.js',
@@ -360,13 +362,22 @@ describe('runReview', () => {
     };
     const engine = vi
       .fn()
-      .mockResolvedValueOnce(envelope(review))
+      .mockResolvedValueOnce(envelope(warningOnly))
       .mockResolvedValueOnce(envelope({ refuted: false, reason: 'the warning stands' }));
 
     const outcome = await runReview({ cwd: repo, profile: 'deep', engine });
 
     if (outcome.kind !== 'reviewed') throw new Error('unreachable');
-    expect(outcome.result.verdict).toBe('block'); // not silently downgraded
+    expect(outcome.result.verdict).toBe('pass'); // derived, not authored
+    expect(outcome.result.findings.map((f) => f.severity)).toEqual(['warning']); // still reported
+
+    // Under --fail-on warning the same review blocks: failOn is now authoritative.
+    engine
+      .mockResolvedValueOnce(envelope(warningOnly))
+      .mockResolvedValueOnce(envelope({ refuted: false, reason: 'stands' }));
+    const strict = await runReview({ cwd: repo, profile: 'deep', engine, failOn: 'warning' });
+    if (strict.kind !== 'reviewed') throw new Error('unreachable');
+    expect(strict.result.verdict).toBe('block');
   });
 
   it('salvages a prose-only answer with a cheap conversion call', async () => {

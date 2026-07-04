@@ -27,8 +27,10 @@ export const findingSchema = z.looseObject({
   confidence: z.enum(['high', 'medium', 'low']),
 });
 
-export const reviewResultSchema = z.looseObject({
-  verdict: z.enum(['pass', 'block']),
+// What the reviewer authors. It does NOT carry a verdict: pass/block is a
+// derived gate outcome (the findings' severity vs failOn), not something the
+// model decides. See docs/design-verdict-and-resolution.md.
+export const reviewerOutputSchema = z.looseObject({
   summary: z.string().describe('One paragraph: overall judgment of the change'),
   findings: z.array(findingSchema),
   questions: z
@@ -36,7 +38,17 @@ export const reviewResultSchema = z.looseObject({
     .describe('Genuine forks the reviewer could not decide alone; empty if none'),
 });
 
+// The stored and rendered result: the reviewer's output plus the verdict we
+// derive from it. Cache entries and reports use this shape.
+export const reviewResultSchema = z.looseObject({
+  verdict: z.enum(['pass', 'block']),
+  summary: z.string(),
+  findings: z.array(findingSchema),
+  questions: z.array(z.string()),
+});
+
 export type Finding = z.infer<typeof findingSchema>;
+export type ReviewerOutput = z.infer<typeof reviewerOutputSchema>;
 export type ReviewResult = z.infer<typeof reviewResultSchema>;
 
 /**
@@ -52,7 +64,7 @@ export function toCliJsonSchema(schema: z.ZodType): Record<string, unknown> {
   return json;
 }
 
-export const reviewResultJsonSchema = toCliJsonSchema(reviewResultSchema);
+export const reviewerOutputJsonSchema = toCliJsonSchema(reviewerOutputSchema);
 
 /** Verdict of one refutation call in a profile's verification pass (deep or custom). */
 export const refutationSchema = z.looseObject({
@@ -66,4 +78,14 @@ export const refutationJsonSchema = toCliJsonSchema(refutationSchema);
 
 export function severityRank(s: Severity): number {
   return severities.indexOf(s);
+}
+
+/**
+ * The gate outcome, derived from the findings — never authored by the reviewer.
+ * Block when any finding reaches the failOn threshold; pass otherwise. (Ignored
+ * findings will drop out here once resolutions exist; see the design note.)
+ */
+export function deriveVerdict(findings: Finding[], failOn: Severity): 'pass' | 'block' {
+  const threshold = severityRank(failOn);
+  return findings.some((f) => severityRank(f.severity) >= threshold) ? 'block' : 'pass';
 }

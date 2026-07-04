@@ -70,6 +70,35 @@ agentlint --fix                  # fix confirmed findings, then re-review once
 
 Exit codes: `0` pass, `1` blocking findings, `2` error. Never a silent pass.
 
+## Scopes
+
+A scope is a named set of paths — the inverse of `ignore`. Where `ignore` says
+"never look here", a scope says "for this run, look only here". Define scopes in
+the config, then restrict any review to one with `--scope`:
+
+```json
+{
+  "scopes": {
+    "orchestrator": ["services/orchestrator/**"],
+    "web": ["apps/web/**"],
+    "docs": ["docs/**"]
+  }
+}
+```
+
+```sh
+agentlint scope list                             # scopes this project defines
+agentlint review snapshot --scope orchestrator   # only that subsystem
+agentlint review staged --scope web              # only staged changes under apps/web
+```
+
+Scopes turn a snapshot review of a large monorepo from one thin pass over
+everything into a focused, thorough pass over one part. An unknown `--scope`
+name fails loudly. Scopes and `--profile` compose:
+`review snapshot --scope orchestrator --profile audit`. A profile can also carry
+a `defaultScope`, so a profile that is inherently a slice never needs the flag —
+see [Custom profiles](#custom-profiles).
+
 ## Task intent
 
 The reviewer judges _correctness against intent_ when it knows the intent:
@@ -194,7 +223,10 @@ agentlint profile remove audit
 
 `--global` targets `~/.agentlint/config.json`; `--model` and `--name`
 override what the generator picks. Built-in profiles can be tuned with
-`profile edit` but not removed. Then run a review under a custom profile:
+`profile edit` but not removed. The generator writes the model, budget, and
+`instructions`; a profile's `rules`, `inheritProjectRules`, and `defaultScope`
+are set by hand in the config (see [Custom profiles](#custom-profiles)). Then
+run a review under a custom profile:
 
 ```sh
 agentlint review snapshot --profile audit --report-md audit.md
@@ -245,19 +277,46 @@ it uses, and `--profile <name>` overrides it.
 profile for a different job — for example a periodic security audit on a
 stronger, pricier model. A custom profile inherits the standard profile's
 numbers, so it needs only what differs, and it runs a thorough review
-(repo exploration + refutation pass) like `deep`.
+(repo exploration + refutation pass) like `deep`. Beyond a model, budget, and
+free-text `instructions`, a profile can override which rules apply and which
+paths it looks at:
+
+- `rules` — selectors (same grammar as the top-level `rules`) added on top of
+  the project's, so a profile can pull in its own without every review paying
+  for them.
+- `inheritProjectRules` — set `false` to make the profile stand alone:
+  `config.rules` and the project `.agentlint/rules/` directory are dropped,
+  leaving only the profile's own rules (global rules still apply). A focused
+  audit is then not diluted by the general rule set.
+- `defaultScope` — a scope name the profile restricts to unless `--scope`
+  overrides it, for a profile that is inherently a slice.
 
 ```json
 {
+  "scopes": { "docs": ["docs/**"] },
   "profiles": {
     "audit": {
       "model": "claude-fable-5",
       "budgetUsd": 12,
+      "rules": ["library:errors", "./security/*.md"],
+      "inheritProjectRules": false,
       "instructions": "Audit for security: injection, committed secrets, unvalidated input at trust boundaries, unsafe deserialization."
+    },
+    "docs": {
+      "model": "sonnet",
+      "defaultScope": "docs",
+      "rules": ["library:prose"],
+      "inheritProjectRules": false,
+      "instructions": "Review documentation prose: clarity and accuracy against the code it describes. Do not review code quality."
     }
   }
 }
 ```
+
+A security audit deliberately has no `defaultScope` — narrowing it would hide
+the very things it hunts (secrets, injection in scripts outside `src/`), so it
+stays whole-repo and is scoped per run. A `docs` profile is the opposite: a
+slice by nature, so it defaults to its scope.
 
 ```sh
 agentlint review snapshot --profile audit --report-md audit.md
@@ -273,6 +332,7 @@ list, not a gate that blocks.
   `--fail-on` overrides per run.
 - `maxDiffKb` — hard size cap, enforced before any money is spent.
 - `ignore` — globs excluded from review (setting it replaces the defaults).
+- `scopes` — named path filters for partial reviews; see [Scopes](#scopes).
 
 ## Hook and CI recipes
 
