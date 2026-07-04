@@ -28,6 +28,23 @@ New:
   overrides it — for profiles that are inherently a slice, e.g. a `docs`
   profile that only ever looks at `docs/**`. A default scope that names no
   known scope fails loudly, like `--scope` does.
+- **The verdict is derived, not authored.** The reviewer now only reports and
+  rates findings; the gate derives pass/block from the findings' severity
+  against `failOn`. `failOn` is authoritative — a `warning` no longer blocks
+  under the default `blocker` threshold, and `--fail-on warning` makes it
+  block. This removes a class of false blocks where the reviewer set an overall
+  block that contradicted its own sub-threshold findings.
+- **Ignore a false positive, surgically.** `agentlint ignore <finding-id>
+"reason"` dismisses one finding with a reason and an audit trail (who, when);
+  `agentlint ignore --run <run-id> "reason"` dismisses a whole run — the
+  reasoned, logged alternative to `AGENTLINT_SKIP`, which leaves no record. The
+  report shows each finding's id and the run id. The verdict re-derives over
+  the remaining open findings, so re-reviewing the unchanged change (a cache
+  hit) proceeds with no new engine call; anything not ignored still blocks. The
+  verdict cache now stores full entries (blocks included, plus the profile,
+  model, target, and `failOn` a run used) so an ignore has a finding to attach
+  to. A code change moves the cache key, so an ignore can never mask a problem
+  in changed code.
 
 Fixed:
 

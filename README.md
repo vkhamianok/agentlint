@@ -248,6 +248,29 @@ Committing is deliberately not agentlint's job: the gate judges, the
 caller acts. Exit code `0` is the signal that whoever invoked the review —
 you, a hook, a coding agent — may commit.
 
+## Ignoring a false positive
+
+An LLM reviewer is not infallible. When a finding is wrong, dismiss it
+surgically instead of disabling the whole gate — with a reason that is kept:
+
+```sh
+agentlint ignore a1b2c3d4 "false positive: the value is validated upstream"
+agentlint ignore --run 3f8a91c2e004 "accepted for this release, tracked in TICKET-1"
+```
+
+Every finding in a report carries a short id, and each run carries a run id —
+those are the handles. Ignoring a finding drops it from the verdict, so a
+re-review of the unchanged change proceeds if nothing else blocks; anything you
+did not ignore still gates. `--run` dismisses the whole run: the reasoned
+alternative to `AGENTLINT_SKIP`, leaving a trail (reason, who, when) a teammate
+can review. An ignore is local to your clone and tied to the exact change —
+edit the code and the review runs fresh, so it can never hide a problem you
+have since changed.
+
+The verdict itself is derived, never authored by the model: the reviewer rates
+each finding by severity, and the gate blocks when an open finding reaches
+`failOn`. Lower the bar for one run with `--fail-on warning`.
+
 ## Configuration
 
 `.agentlint/config.json` in the repo (project) and `~/.agentlint/config.json`
