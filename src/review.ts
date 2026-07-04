@@ -81,9 +81,11 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   opts.onStart?.({ profile: profileName, model: profile.model });
   const target: TargetSpec = opts.target ?? { kind: 'working-tree' };
 
-  const scopeGlobs = resolveScope(opts.scope, config);
+  // An explicit --scope wins; otherwise the profile may carry a default scope.
+  const scopeName = opts.scope ?? profile.defaultScope;
+  const scopeGlobs = resolveScope(scopeName, config);
   const changeSet = await resolveTarget(repoRoot, target, config.ignore, scopeGlobs);
-  if (opts.scope) changeSet.description = `${changeSet.description} — scope "${opts.scope}"`;
+  if (scopeName) changeSet.description = `${changeSet.description} — scope "${scopeName}"`;
   if (isEmpty(changeSet)) return { kind: 'empty' };
   enforceSizeCap(changeSet, profile);
 

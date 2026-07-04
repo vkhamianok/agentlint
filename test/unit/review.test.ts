@@ -160,6 +160,36 @@ describe('runReview', () => {
     expect(call.prompt).not.toContain('elsewhere.js');
   });
 
+  it("uses a profile's defaultScope when no --scope is given, and --scope overrides it", async () => {
+    const repo = await makeRepo();
+    await mkdir(path.join(repo, '.agentlint'), { recursive: true });
+    await writeFile(
+      path.join(repo, '.agentlint', 'config.json'),
+      JSON.stringify({
+        scopes: { docs: ['docs/**'], code: ['src/**'] },
+        profiles: { docs: { model: 'sonnet', defaultScope: 'docs' } },
+      }),
+    );
+    await write(repo, 'docs/guide.md', '# Guide\n\nHow it works.\n');
+    await write(repo, 'src/app.js', 'export const x = 1;\n');
+    const engine = vi.fn().mockResolvedValue(envelope(cleanReview));
+
+    const byDefault = await runReview({ cwd: repo, profile: 'docs', engine });
+    if (byDefault.kind !== 'reviewed') throw new Error('unreachable');
+    expect(byDefault.target).toContain('scope "docs"');
+    const defaultCall = engine.mock.calls[0]![0];
+    expect(defaultCall.prompt).toContain('docs/guide.md');
+    expect(defaultCall.prompt).not.toContain('src/app.js');
+
+    engine.mockClear();
+    const overridden = await runReview({ cwd: repo, profile: 'docs', scope: 'code', engine });
+    if (overridden.kind !== 'reviewed') throw new Error('unreachable');
+    expect(overridden.target).toContain('scope "code"');
+    const overrideCall = engine.mock.calls[0]![0];
+    expect(overrideCall.prompt).toContain('src/app.js');
+    expect(overrideCall.prompt).not.toContain('docs/guide.md');
+  });
+
   it("applies a profile's own rules and inheritProjectRules to the reviewer prompt", async () => {
     const repo = await makeRepo();
     await mkdir(path.join(repo, '.agentlint', 'rules'), { recursive: true });

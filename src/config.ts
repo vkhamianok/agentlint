@@ -49,6 +49,8 @@ const profileOverrideSchema = z.strictObject({
   rules: z.array(ruleSelectorSchema).optional(),
   /** When false, this profile ignores config.rules and the project rules dir. */
   inheritProjectRules: z.boolean().optional(),
+  /** A scope name this profile restricts to by default; --scope overrides. */
+  defaultScope: scopeName.optional(),
 });
 
 /** What a config file may contain — everything optional, unknown keys rejected. */
@@ -123,6 +125,8 @@ export interface ProfileSettings {
    * rules (and global rules, per inheritGlobalRules). Default true (additive).
    */
   inheritProjectRules?: boolean;
+  /** A scope name this profile restricts to unless --scope overrides it. */
+  defaultScope?: string;
 }
 
 export interface AgentlintConfig {
@@ -228,6 +232,7 @@ function mergeProfiles(
       // inherit standard's (standard has none), so it stays undefined there.
       rules: override.rules ?? acc[name]?.rules,
       inheritProjectRules: override.inheritProjectRules ?? acc[name]?.inheritProjectRules,
+      defaultScope: override.defaultScope ?? acc[name]?.defaultScope,
     };
   }
   return merged;

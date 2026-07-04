@@ -23,6 +23,11 @@ New:
   not diluted by the general rule set. Free-text `instructions` stay as the
   supplementary focus lens. `--scope` and `--profile` compose:
   `review snapshot --scope orchestrator --profile audit`.
+- **A profile can carry a default scope.** `profiles.<name>.defaultScope`
+  names a scope the profile restricts to unless an explicit `--scope`
+  overrides it — for profiles that are inherently a slice, e.g. a `docs`
+  profile that only ever looks at `docs/**`. A default scope that names no
+  known scope fails loudly, like `--scope` does.
 
 Fixed:
 

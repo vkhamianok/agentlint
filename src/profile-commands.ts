@@ -29,6 +29,7 @@ export interface ProfileEntry {
   /** Rule selectors are set by hand; edit/add must carry them through untouched. */
   rules?: RuleSelector[];
   inheritProjectRules?: boolean;
+  defaultScope?: string;
 }
 
 export interface WrittenProfile {

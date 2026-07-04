@@ -125,6 +125,18 @@ describe('loadConfig', () => {
     expect(config.rules).toEqual(['library:errors']);
   });
 
+  it('carries a profile defaultScope through the merge', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(repo, {
+      scopes: { docs: ['docs/**'] },
+      profiles: { docs: { model: 'sonnet', defaultScope: 'docs' } },
+    });
+
+    const config = await loadConfig(repo, home);
+
+    expect(config.profiles.docs).toMatchObject({ model: 'sonnet', defaultScope: 'docs' });
+  });
+
   it('merges scopes by name, project winning a clash', async () => {
     const { home, repo } = await makeDirs();
     await writeConfig(home, { scopes: { docs: ['documentation/**'], shared: ['libs/**'] } });

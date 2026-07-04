@@ -26,6 +26,8 @@ export interface ResolvedProfile {
   rules?: RuleSelector[];
   /** When false, drop config.rules and the project rules dir for this profile. */
   inheritProjectRules: boolean;
+  /** A scope name this profile restricts to unless --scope overrides it. */
+  defaultScope?: string;
 }
 
 const QUICK_MAX_DIFF_KB = 64;
@@ -80,6 +82,7 @@ export function resolveProfile(name: ProfileName, config: AgentlintConfig): Reso
     refute,
     rules: settings.rules,
     inheritProjectRules: settings.inheritProjectRules ?? true,
+    defaultScope: settings.defaultScope,
   };
 }
 
