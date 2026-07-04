@@ -7,6 +7,14 @@
       "instructions": "Audit for security: injection (shell, SQL, path), secrets committed to code, unvalidated input at trust boundaries, unsafe deserialization, and untrusted data reaching a spawn or eval.",
       "rules": ["library:root-cause", "library:errors", ".agentlint/security/*.md"],
       "inheritProjectRules": false
+    },
+    "docs": {
+      "model": "sonnet",
+      "budgetUsd": 1,
+      "defaultScope": "docs",
+      "rules": ["library:prose"],
+      "inheritProjectRules": false,
+      "instructions": "Review documentation prose only: clarity, plain language, and accuracy against the code it describes. Flag dead links, outdated references, and claims the code no longer supports. Do not review code quality."
     }
   },
   "scopes": {
