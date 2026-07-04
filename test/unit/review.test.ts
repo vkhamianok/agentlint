@@ -129,6 +129,65 @@ describe('runReview', () => {
     expect(call.prompt).toContain('Judge the change against this intent');
   });
 
+  it('fails loudly on an unknown scope, before spending money', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
+    const engine = vi.fn();
+
+    await expect(runReview({ cwd: repo, scope: 'ghost', engine })).rejects.toThrow(
+      /Unknown scope "ghost"/,
+    );
+    expect(engine).not.toHaveBeenCalled();
+  });
+
+  it('narrows the review to a configured scope and labels the target', async () => {
+    const repo = await makeRepo();
+    await mkdir(path.join(repo, '.agentlint'), { recursive: true });
+    await writeFile(
+      path.join(repo, '.agentlint', 'config.json'),
+      JSON.stringify({ scopes: { orchestrator: ['services/orchestrator/**'] } }),
+    );
+    await write(repo, 'services/orchestrator/run.js', 'export const run = 1;\n');
+    await write(repo, 'elsewhere.js', 'export const other = 2;\n');
+    const engine = vi.fn().mockResolvedValue(envelope(cleanReview));
+
+    const outcome = await runReview({ cwd: repo, scope: 'orchestrator', engine });
+
+    if (outcome.kind !== 'reviewed') throw new Error('unreachable');
+    expect(outcome.target).toContain('scope "orchestrator"');
+    const call = engine.mock.calls[0]![0];
+    expect(call.prompt).toContain('services/orchestrator/run.js');
+    expect(call.prompt).not.toContain('elsewhere.js');
+  });
+
+  it("applies a profile's own rules and inheritProjectRules to the reviewer prompt", async () => {
+    const repo = await makeRepo();
+    await mkdir(path.join(repo, '.agentlint', 'rules'), { recursive: true });
+    await writeFile(path.join(repo, '.agentlint', 'rules', 'local.md'), 'Flag any TODO comments.');
+    await writeFile(
+      path.join(repo, '.agentlint', 'config.json'),
+      JSON.stringify({
+        profiles: {
+          audit: {
+            model: 'opus',
+            rules: ['library:errors'],
+            inheritProjectRules: false,
+          },
+        },
+      }),
+    );
+    await write(repo, 'hello.js', 'export const hello = () => "changed";\n');
+    const engine = vi.fn().mockResolvedValue(envelope(cleanReview));
+
+    await runReview({ cwd: repo, profile: 'audit', engine });
+
+    const call = engine.mock.calls[0]![0];
+    // The profile stands alone: its own library rules are present, the always-on
+    // project rule is dropped.
+    expect(call.appendSystemPrompt).toContain('library rule: errors/');
+    expect(call.appendSystemPrompt).not.toContain('Flag any TODO comments.');
+  });
+
   it('picks the profile from context config and applies its settings', async () => {
     const repo = await makeRepo();
     await write(repo, 'hello.js', 'export const hello = () => "changed";\n');

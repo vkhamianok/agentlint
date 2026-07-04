@@ -101,6 +101,53 @@ describe('loadConfig', () => {
     expect(config.inheritGlobalRules).toBe(false);
   });
 
+  it('accepts a profile that overrides rules and opts out of project rules', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(repo, {
+      rules: ['library:errors'],
+      profiles: {
+        security: {
+          model: 'claude-fable-5',
+          rules: ['library:errors', './security/*.md'],
+          inheritProjectRules: false,
+        },
+      },
+    });
+
+    const config = await loadConfig(repo, home);
+
+    expect(config.profiles.security).toMatchObject({
+      model: 'claude-fable-5',
+      rules: ['library:errors', './security/*.md'],
+      inheritProjectRules: false,
+    });
+    // The top-level rules are untouched; only the profile opts out.
+    expect(config.rules).toEqual(['library:errors']);
+  });
+
+  it('merges scopes by name, project winning a clash', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(home, { scopes: { docs: ['documentation/**'], shared: ['libs/**'] } });
+    await writeConfig(repo, {
+      scopes: { orchestrator: ['services/orchestrator/**'], docs: ['docs/**'] },
+    });
+
+    const config = await loadConfig(repo, home);
+
+    expect(config.scopes).toEqual({
+      shared: ['libs/**'], // global-only survives
+      orchestrator: ['services/orchestrator/**'], // project-only
+      docs: ['docs/**'], // project wins the clash
+    });
+  });
+
+  it('rejects a scope name that is not lower-case kebab', async () => {
+    const { home, repo } = await makeDirs();
+    await writeConfig(repo, { scopes: { Orchestrator: ['services/orchestrator/**'] } });
+
+    await expect(loadConfig(repo, home)).rejects.toThrow(ConfigError);
+  });
+
   it('rejects a model name carrying shell metacharacters', async () => {
     const { home, repo } = await makeDirs();
     await writeConfig(repo, { profiles: { standard: { model: 'sonnet & calc.exe' } } });

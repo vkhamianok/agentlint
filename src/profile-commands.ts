@@ -15,6 +15,7 @@ import {
 } from './config.js';
 import { BUILTIN_PROFILES } from './profiles.js';
 import type { EngineFn } from './review.js';
+import type { RuleSelector } from './rules.js';
 import { toCliJsonSchema } from './schema.js';
 
 const BUILTINS: readonly string[] = BUILTIN_PROFILES;
@@ -25,6 +26,9 @@ export interface ProfileEntry {
   timeoutMinutes?: number;
   budgetUsd?: number;
   instructions?: string;
+  /** Rule selectors are set by hand; edit/add must carry them through untouched. */
+  rules?: RuleSelector[];
+  inheritProjectRules?: boolean;
 }
 
 export interface WrittenProfile {

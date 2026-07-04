@@ -70,6 +70,14 @@ export function assertRuleMarkdown(content: string, context: string): void {
 export interface LoadRulesOptions {
   /** From config.rules; undefined = load .agentlint/rules/ directories. */
   selectors?: RuleSelector[];
+  /** From the active profile's rules; added on top of config.rules. */
+  profileSelectors?: RuleSelector[];
+  /**
+   * The active profile's inheritProjectRules. When false, config.rules and
+   * the project directory are dropped, leaving only the profile's selectors.
+   * Default true.
+   */
+  inheritProjectRules?: boolean;
   /** Global ~/.agentlint rules apply unless explicitly turned off. */
   inheritGlobalRules?: boolean;
   homeDir?: string;
@@ -77,10 +85,12 @@ export interface LoadRulesOptions {
 
 /**
  * Loads rules in precedence order — later wins: global taste first, then
- * config selectors (library and paths), then the project's own
- * .agentlint/rules directory. The project directory ALWAYS loads, with or
- * without config.rules: a rule dropped there (e.g. by add-rule) must never
- * be silently ignored because the config switched to selector mode.
+ * config and profile selectors (library and paths), then the project's own
+ * .agentlint/rules directory. The project directory loads by default, with or
+ * without config.rules: a rule dropped there (e.g. by add-rule) must never be
+ * silently ignored because the config switched to selector mode. A profile
+ * that sets inheritProjectRules:false opts out — config.rules and the project
+ * directory are dropped, so a focused audit runs on its own rules alone.
  */
 export async function loadRules(repoRoot: string, opts: LoadRulesOptions = {}): Promise<Rule[]> {
   const homeDir = opts.homeDir ?? os.homedir();
@@ -89,12 +99,19 @@ export async function loadRules(repoRoot: string, opts: LoadRulesOptions = {}): 
       ? []
       : await loadRuleDir(path.join(homeDir, '.agentlint', 'rules'), 'global');
 
+  const inheritProject = opts.inheritProjectRules !== false;
+  const selectors = inheritProject
+    ? [...(opts.selectors ?? []), ...(opts.profileSelectors ?? [])]
+    : (opts.profileSelectors ?? []);
+
   const selected: Rule[] = [];
-  for (const selector of opts.selectors ?? []) {
+  for (const selector of selectors) {
     selected.push(...(await resolveSelector(repoRoot, selector)));
   }
 
-  const project = await loadRuleDir(path.join(repoRoot, '.agentlint', 'rules'), 'project');
+  const project = inheritProject
+    ? await loadRuleDir(path.join(repoRoot, '.agentlint', 'rules'), 'project')
+    : [];
   return [...global, ...selected, ...project];
 }
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 — 2026-07-04
+
+New:
+
+- **Scopes: partial reviews of a monorepo.** Define named path filters under a
+  `scopes` map in `.agentlint/config.json` (scope name to include globs), then
+  run `agentlint review snapshot --scope orchestrator` to review only that
+  subsystem. A scope is the inverse of `ignore` (an include-filter) and applies
+  to every target — diff, staged, commit, range, snapshot; an unknown `--scope`
+  name fails loudly. It turns a snapshot review of a large repo from one thin
+  pass over everything into a focused, thorough pass over one part.
+  `agentlint scope list` shows the scopes a project defines. Scopes merge by
+  name across global and project config (project wins a clash).
+- **Per-profile rules.** A profile can carry its own `rules` selectors — same
+  grammar as top-level `rules` — added on top of `config.rules`, so a security
+  `audit` profile pulls in security rules without every review paying for them.
+  Setting `inheritProjectRules: false` on a profile (mirrors
+  `inheritGlobalRules`) makes it stand alone: `config.rules` and the project
+  `.agentlint/rules/` directory are dropped, leaving only the profile's own
+  rules (global rules still apply per `inheritGlobalRules`) — a focused audit
+  not diluted by the general rule set. Free-text `instructions` stay as the
+  supplementary focus lens. `--scope` and `--profile` compose:
+  `review snapshot --scope orchestrator --profile audit`.
+
 ## 0.3.0 — 2026-07-03
 
 **Breaking config changes** (0.2.0 configs need updating; the validator

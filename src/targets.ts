@@ -40,30 +40,35 @@ export async function resolveTarget(
   repoRoot: string,
   spec: TargetSpec,
   ignore: string[] = [],
+  scope: string[] = [],
 ): Promise<ChangeSet> {
   const isIgnored = ignore.length > 0 ? picomatch(ignore, { dot: true }) : () => false;
+  // A scope is the inverse of ignore: an include-filter that keeps only files
+  // under its globs. No scope means "everything" (in-scope is always true).
+  const inScope = scope.length > 0 ? picomatch(scope, { dot: true }) : () => true;
+  const isExcluded: Matcher = (p) => isIgnored(p) || !inScope(p);
   switch (spec.kind) {
     case 'working-tree':
-      return resolveWorkingTree(repoRoot, isIgnored);
+      return resolveWorkingTree(repoRoot, isExcluded);
     case 'staged':
-      return resolveStaged(repoRoot, isIgnored);
+      return resolveStaged(repoRoot, isExcluded);
     case 'commit':
-      return resolveCommit(repoRoot, spec.ref, isIgnored);
+      return resolveCommit(repoRoot, spec.ref, isExcluded);
     case 'range':
-      return resolveRange(repoRoot, spec.range, isIgnored);
+      return resolveRange(repoRoot, spec.range, isExcluded);
     case 'snapshot':
-      return resolveSnapshot(repoRoot, isIgnored);
+      return resolveSnapshot(repoRoot, isExcluded);
   }
 }
 
 type Matcher = (p: string) => boolean;
 
-async function resolveWorkingTree(repoRoot: string, isIgnored: Matcher): Promise<ChangeSet> {
+async function resolveWorkingTree(repoRoot: string, isExcluded: Matcher): Promise<ChangeSet> {
   await ensureHead(repoRoot);
-  const diff = filterDiff(await git(repoRoot, 'diff', 'HEAD'), isIgnored);
+  const diff = filterDiff(await git(repoRoot, 'diff', 'HEAD'), isExcluded);
   const changed = await gitLines(repoRoot, 'diff', 'HEAD', '--name-only');
   const untracked = (await gitLines(repoRoot, 'ls-files', '--others', '--exclude-standard')).filter(
-    (f) => !isIgnored(f),
+    (f) => !isExcluded(f),
   );
 
   const newFiles: ChangeSet['newFiles'] = [];
@@ -76,19 +81,19 @@ async function resolveWorkingTree(repoRoot: string, isIgnored: Matcher): Promise
     description: 'uncommitted working-tree changes (staged, unstaged, and untracked files)',
     diff,
     newFiles,
-    files: [...changed.filter((f) => !isIgnored(f)), ...untracked],
+    files: [...changed.filter((f) => !isExcluded(f)), ...untracked],
   };
 }
 
-async function resolveStaged(repoRoot: string, isIgnored: Matcher): Promise<ChangeSet> {
+async function resolveStaged(repoRoot: string, isExcluded: Matcher): Promise<ChangeSet> {
   await ensureHead(repoRoot);
   return {
     kind: 'diff',
     description: 'staged changes (git diff --cached)',
-    diff: filterDiff(await git(repoRoot, 'diff', '--cached'), isIgnored),
+    diff: filterDiff(await git(repoRoot, 'diff', '--cached'), isExcluded),
     newFiles: [],
     files: (await gitLines(repoRoot, 'diff', '--cached', '--name-only')).filter(
-      (f) => !isIgnored(f),
+      (f) => !isExcluded(f),
     ),
   };
 }
@@ -96,7 +101,7 @@ async function resolveStaged(repoRoot: string, isIgnored: Matcher): Promise<Chan
 async function resolveCommit(
   repoRoot: string,
   ref: string,
-  isIgnored: Matcher,
+  isExcluded: Matcher,
 ): Promise<ChangeSet> {
   const verified = await execa('git', ['rev-parse', '--verify', `${ref}^{commit}`], {
     cwd: repoRoot,
@@ -109,10 +114,10 @@ async function resolveCommit(
   return {
     kind: 'diff',
     description: `commit ${ref}`,
-    diff: filterDiff(await git(repoRoot, 'show', ref, '--format=', '--patch'), isIgnored),
+    diff: filterDiff(await git(repoRoot, 'show', ref, '--format=', '--patch'), isExcluded),
     newFiles: [],
     files: (await gitLines(repoRoot, 'show', ref, '--format=', '--name-only')).filter(
-      (f) => !isIgnored(f),
+      (f) => !isExcluded(f),
     ),
     taskFallback: message,
   };
@@ -121,7 +126,7 @@ async function resolveCommit(
 async function resolveRange(
   repoRoot: string,
   range: string,
-  isIgnored: Matcher,
+  isExcluded: Matcher,
 ): Promise<ChangeSet> {
   if (!range.includes('..')) {
     throw new TargetError(`Not a commit range: "${range}". Expected the form a..b.`);
@@ -129,13 +134,13 @@ async function resolveRange(
   return {
     kind: 'diff',
     description: `commit range ${range}`,
-    diff: filterDiff(await git(repoRoot, 'diff', range), isIgnored),
+    diff: filterDiff(await git(repoRoot, 'diff', range), isExcluded),
     newFiles: [],
-    files: (await gitLines(repoRoot, 'diff', range, '--name-only')).filter((f) => !isIgnored(f)),
+    files: (await gitLines(repoRoot, 'diff', range, '--name-only')).filter((f) => !isExcluded(f)),
   };
 }
 
-async function resolveSnapshot(repoRoot: string, isIgnored: Matcher): Promise<ChangeSet> {
+async function resolveSnapshot(repoRoot: string, isExcluded: Matcher): Promise<ChangeSet> {
   const tracked = await gitLines(repoRoot, 'ls-files');
   const untracked = await gitLines(repoRoot, 'ls-files', '--others', '--exclude-standard');
   return {
@@ -144,7 +149,7 @@ async function resolveSnapshot(repoRoot: string, isIgnored: Matcher): Promise<Ch
       'the full project as it is right now (snapshot review: no diff, read files as needed)',
     diff: '',
     newFiles: [],
-    files: [...tracked, ...untracked].filter((f) => !isIgnored(f)).sort(),
+    files: [...tracked, ...untracked].filter((f) => !isExcluded(f)).sort(),
   };
 }
 
@@ -183,16 +188,17 @@ async function gitLines(cwd: string, ...args: string[]): Promise<string[]> {
 }
 
 /**
- * Drops ignored files' chunks from a unified diff. Matches the new-side
- * (b/) path only; a rename out of an ignored path is deliberately shown.
+ * Drops excluded files' chunks (ignored or out of scope) from a unified diff.
+ * Matches the new-side (b/) path only; a rename out of an excluded path is
+ * deliberately shown.
  */
-function filterDiff(diff: string, isIgnored: Matcher): string {
+function filterDiff(diff: string, isExcluded: Matcher): string {
   if (!diff.trim()) return diff;
   return diff
     .split(/^(?=diff --git )/m)
     .filter((chunk) => {
       const header = chunk.match(/^diff --git a\/(.+?) b\/(.+)$/m);
-      return header === null || !isIgnored(header[2]!);
+      return header === null || !isExcluded(header[2]!);
     })
     .join('');
 }

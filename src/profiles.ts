@@ -1,4 +1,5 @@
 import { type AgentlintConfig, ConfigError } from './config.js';
+import type { RuleSelector } from './rules.js';
 
 export const BUILTIN_PROFILES = ['quick', 'standard', 'deep'] as const;
 /** A profile is any name present in config.profiles — the built-ins plus custom ones. */
@@ -21,6 +22,10 @@ export interface ResolvedProfile {
   promptFocus?: string;
   /** Run the per-finding refutation pass. */
   refute: boolean;
+  /** Rule selectors this profile adds (or, standing alone, uses). */
+  rules?: RuleSelector[];
+  /** When false, drop config.rules and the project rules dir for this profile. */
+  inheritProjectRules: boolean;
 }
 
 const QUICK_MAX_DIFF_KB = 64;
@@ -73,6 +78,8 @@ export function resolveProfile(name: ProfileName, config: AgentlintConfig): Reso
     maxDiffKb: isQuick ? Math.min(config.maxDiffKb, QUICK_MAX_DIFF_KB) : config.maxDiffKb,
     promptFocus,
     refute,
+    rules: settings.rules,
+    inheritProjectRules: settings.inheritProjectRules ?? true,
   };
 }
 

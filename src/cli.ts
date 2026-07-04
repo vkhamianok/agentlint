@@ -42,6 +42,7 @@ interface ReviewCliOptions {
   taskFile?: string;
   failOn?: string;
   profile?: string;
+  scope?: string;
   nonInteractive?: boolean;
   report?: string;
   reportMd?: string;
@@ -68,6 +69,7 @@ function reviewTarget(name: string, description: string, isDefault = false): Com
       '--profile <name>',
       `profile: ${BUILTIN_PROFILES.join(' | ')} or a custom one (default: by context)`,
     )
+    .option('--scope <name>', 'restrict the review to a named scope from the config')
     .option('--non-interactive', 'never prompt; behave like a hook/CI run')
     .option('--no-cache', 'ignore the pass-verdict cache for this run')
     .option('--report <path>', 'also write a JSON report to this file, or "-" for JSON on stdout')
@@ -428,6 +430,32 @@ profileCommand
     }
   });
 
+const scopeCommand = program
+  .command('scope')
+  .description('named path filters for partial reviews (--scope)');
+
+scopeCommand
+  .command('list')
+  .description('list the scopes defined for this project')
+  .action(async () => {
+    const repoRoot = await resolveRepoRoot(process.cwd());
+    const scopes = (await loadConfig(repoRoot)).scopes;
+    const names = Object.keys(scopes).sort();
+    if (names.length === 0) {
+      console.log(
+        pc.dim(
+          'No scopes defined. Add a "scopes" map to .agentlint/config.json, e.g. ' +
+            '{ "orchestrator": ["services/orchestrator/**"] }.',
+        ),
+      );
+      return;
+    }
+    const width = Math.max(...names.map((n) => n.length));
+    for (const name of names) {
+      console.log(`${name.padEnd(width)}  ${pc.dim(scopes[name]!.join(', '))}`);
+    }
+  });
+
 /**
  * Escape hatch for hooks (like HUSKY=0): a blocked commit sometimes must
  * land anyway, and --no-verify skips every hook, not just this one.
@@ -455,6 +483,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
     task,
     failOn: parseFailOn(opts.failOn),
     profile: opts.profile,
+    scope: opts.scope,
     context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
     noCache: opts.cache === false,
   };
@@ -554,6 +583,7 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
       task,
       failOn: parseFailOn(opts.failOn),
       profile: opts.profile,
+      scope: opts.scope,
       context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
       noCache: opts.cache === false,
       ...progress.hooks,

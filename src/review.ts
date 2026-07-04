@@ -39,6 +39,8 @@ export interface ReviewRunOptions {
   failOn?: Severity;
   /** CLI override for the profile; must name a configured profile. */
   profile?: ProfileName;
+  /** Restrict the review to a named scope's paths (--scope). */
+  scope?: string;
   /** Where the run happens; picks the default profile from config. */
   context?: RunContext;
   /** Skip the pass-verdict cache for this run (--no-cache). */
@@ -79,7 +81,9 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   opts.onStart?.({ profile: profileName, model: profile.model });
   const target: TargetSpec = opts.target ?? { kind: 'working-tree' };
 
-  const changeSet = await resolveTarget(repoRoot, target, config.ignore);
+  const scopeGlobs = resolveScope(opts.scope, config);
+  const changeSet = await resolveTarget(repoRoot, target, config.ignore, scopeGlobs);
+  if (opts.scope) changeSet.description = `${changeSet.description} — scope "${opts.scope}"`;
   if (isEmpty(changeSet)) return { kind: 'empty' };
   enforceSizeCap(changeSet, profile);
 
@@ -88,6 +92,8 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     loadPrinciples(),
     loadRules(repoRoot, {
       selectors: config.rules,
+      profileSelectors: profile.rules,
+      inheritProjectRules: profile.inheritProjectRules,
       inheritGlobalRules: config.inheritGlobalRules,
     }),
   ]);
@@ -245,6 +251,23 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
  * run context. Either source may name a profile that does not exist (a typo,
  * a stale defaultProfile entry) — that must fail loudly, not fall through.
  */
+/**
+ * Turns a --scope name into its include globs, or undefined when no scope was
+ * asked for. An unknown name is a user error (a typo, a stale scope) — fail
+ * loudly rather than silently reviewing the whole repo.
+ */
+function resolveScope(name: string | undefined, config: AgentlintConfig): string[] | undefined {
+  if (!name) return undefined;
+  const globs = config.scopes[name];
+  if (!globs) {
+    const defined = Object.keys(config.scopes).sort().join(', ') || '(none defined)';
+    throw new ConfigError(
+      `Unknown scope "${name}". Defined scopes: ${defined}. Add one under "scopes" in .agentlint/config.json.`,
+    );
+  }
+  return globs;
+}
+
 function resolveProfileName(opts: ReviewRunOptions, config: AgentlintConfig): ProfileName {
   const context = opts.context ?? 'manual';
   const name = opts.profile ?? config.defaultProfile[context];

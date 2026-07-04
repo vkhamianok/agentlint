@@ -156,6 +156,44 @@ describe('snapshot target', () => {
 
     expect(changeSet.files).toEqual(['hello.js']);
   });
+
+  it('keeps only in-scope files when a scope is given', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'services/orchestrator/run.js', 'export const run = 1;\n');
+    await write(repo, 'packages/util.js', 'export const util = 2;\n');
+
+    const changeSet = await resolveTarget(
+      repo,
+      { kind: 'snapshot' },
+      [],
+      ['services/orchestrator/**'],
+    );
+
+    expect(changeSet.files).toEqual(['services/orchestrator/run.js']);
+  });
+});
+
+describe('scope filtering on a diff', () => {
+  it('restricts the diff and file list to the scope', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'services/orchestrator/run.js', 'export const run = 1;\n');
+    await write(repo, 'packages/util.js', 'export const util = 2;\n');
+    await git(repo, 'add', '-A');
+    await git(repo, 'commit', '-m', 'seed subsystems');
+    await write(repo, 'services/orchestrator/run.js', 'export const run = 2;\n');
+    await write(repo, 'packages/util.js', 'export const util = 3;\n');
+
+    const changeSet = await resolveTarget(
+      repo,
+      { kind: 'working-tree' },
+      [],
+      ['services/orchestrator/**'],
+    );
+
+    expect(changeSet.files).toEqual(['services/orchestrator/run.js']);
+    expect(changeSet.diff).toContain('services/orchestrator/run.js');
+    expect(changeSet.diff).not.toContain('packages/util.js');
+  });
 });
 
 describe('non-repo directories', () => {

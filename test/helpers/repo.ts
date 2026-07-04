@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -22,5 +22,7 @@ export async function git(cwd: string, ...args: string[]): Promise<void> {
 }
 
 export async function write(dir: string, file: string, content: string): Promise<void> {
-  await writeFile(path.join(dir, file), content);
+  const full = path.join(dir, file);
+  await mkdir(path.dirname(full), { recursive: true });
+  await writeFile(full, content);
 }

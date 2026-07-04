@@ -164,3 +164,52 @@ describe('loadRules with selectors (config.rules)', () => {
     expect(rules.map((r) => r.source)).toEqual(['global', 'library']);
   });
 });
+
+describe('loadRules with profile selectors', () => {
+  it('adds profile selectors on top of config.rules and the project dir', async () => {
+    const { home, repo } = await makeDirs();
+    await addRule(repo, 'local.md', 'Project law.');
+
+    const rules = await loadRules(repo, {
+      homeDir: home,
+      selectors: ['library:naming/self-descriptive-names'],
+      profileSelectors: ['library:errors'],
+    });
+
+    // config.rules, then the profile's, then the always-on project dir.
+    expect(rules.map((r) => r.name)).toContain('naming/self-descriptive-names');
+    expect(rules.some((r) => r.name.startsWith('errors/'))).toBe(true);
+    expect(rules.map((r) => [r.source, r.name])).toContainEqual(['project', 'local']);
+  });
+
+  it('inheritProjectRules:false drops config.rules and the project dir, keeping only the profile', async () => {
+    const { home, repo } = await makeDirs();
+    await addRule(repo, 'local.md', 'Project law.');
+
+    const rules = await loadRules(repo, {
+      homeDir: home,
+      selectors: ['library:naming/self-descriptive-names'],
+      profileSelectors: ['library:errors'],
+      inheritProjectRules: false,
+    });
+
+    // Only the profile's own rules survive — no config.rules, no project dir.
+    expect(rules.every((r) => r.name.startsWith('errors/'))).toBe(true);
+    expect(rules.some((r) => r.name === 'naming/self-descriptive-names')).toBe(false);
+    expect(rules.some((r) => r.name === 'local')).toBe(false);
+  });
+
+  it('keeps global rules even when the profile stands alone', async () => {
+    const { home, repo } = await makeDirs();
+    await addRule(home, 'personal.md', 'Global taste.');
+
+    const rules = await loadRules(repo, {
+      homeDir: home,
+      profileSelectors: ['library:errors'],
+      inheritProjectRules: false,
+    });
+
+    // inheritProjectRules governs project-level rules only; global is separate.
+    expect(rules.some((r) => r.source === 'global' && r.name === 'personal')).toBe(true);
+  });
+});

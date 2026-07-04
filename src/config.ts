@@ -27,12 +27,28 @@ const profileName = z
   .string()
   .regex(PROFILE_NAME_PATTERN, 'profile names are lower-case kebab, e.g. "audit"');
 
+export const SCOPE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
+const scopeName = z
+  .string()
+  .regex(SCOPE_NAME_PATTERN, 'scope names are lower-case kebab, e.g. "orchestrator"');
+
+// One config.rules / profile.rules entry: a selector string, or the object
+// form that overrides the severity of whatever it selects.
+const ruleSelectorSchema = z.union([
+  z.string(),
+  z.strictObject({ rule: z.string(), severity: z.enum(severities) }),
+]);
+
 const profileOverrideSchema = z.strictObject({
   model: modelName.optional(),
   timeoutMinutes: z.number().positive().optional(),
   budgetUsd: z.number().positive().optional(),
   /** Free-text focus appended to the reviewer's system prompt. */
   instructions: z.string().optional(),
+  /** Rule selectors this profile uses; added on top of config.rules. */
+  rules: z.array(ruleSelectorSchema).optional(),
+  /** When false, this profile ignores config.rules and the project rules dir. */
+  inheritProjectRules: z.boolean().optional(),
 });
 
 /** What a config file may contain — everything optional, unknown keys rejected. */
@@ -50,12 +66,10 @@ const configFileSchema = z.strictObject({
       ci: z.string().optional(),
     })
     .optional(),
+  // Named path filters for partial reviews: scope name → include globs.
+  scopes: z.record(scopeName, z.array(z.string())).optional(),
   ignore: z.array(z.string()).optional(),
-  rules: z
-    .array(
-      z.union([z.string(), z.strictObject({ rule: z.string(), severity: z.enum(severities) })]),
-    )
-    .optional(),
+  rules: z.array(ruleSelectorSchema).optional(),
   inheritGlobalRules: z.boolean().optional(),
 });
 
@@ -101,6 +115,14 @@ export interface ProfileSettings {
   budgetUsd: number;
   /** Free-text focus appended to the reviewer's system prompt. */
   instructions?: string;
+  /** Rule selectors this profile uses, on top of config.rules (see below). */
+  rules?: RuleSelector[];
+  /**
+   * When false, the profile stands alone: config.rules and the project
+   * .agentlint/rules directory are dropped, leaving only this profile's own
+   * rules (and global rules, per inheritGlobalRules). Default true (additive).
+   */
+  inheritProjectRules?: boolean;
 }
 
 export interface AgentlintConfig {
@@ -119,6 +141,8 @@ export interface AgentlintConfig {
   };
   /** Which profile each run context uses; --profile overrides. */
   defaultProfile: { manual: string; hook: string; ci: string };
+  /** Named path filters: scope name → include globs, chosen with --scope. */
+  scopes: Record<string, string[]>;
   /** Globs excluded from review. Setting this REPLACES the defaults. */
   ignore: string[];
   /**
@@ -139,6 +163,7 @@ export const DEFAULT_CONFIG: AgentlintConfig = {
     deep: { model: 'opus', timeoutMinutes: 20, budgetUsd: 4 },
   },
   defaultProfile: { manual: 'standard', hook: 'quick', ci: 'deep' },
+  scopes: {},
   inheritGlobalRules: true,
   ignore: [
     '**/node_modules/**',
@@ -173,6 +198,9 @@ function mergeConfig(acc: AgentlintConfig, file: ConfigFile): AgentlintConfig {
       hook: file.defaultProfile?.hook ?? acc.defaultProfile.hook,
       ci: file.defaultProfile?.ci ?? acc.defaultProfile.ci,
     },
+    // Scopes merge by name (project wins a clash), so global and project can
+    // each define their own — unlike ignore, which replaces wholesale.
+    scopes: { ...acc.scopes, ...file.scopes },
     ignore: file.ignore ?? acc.ignore,
     rules: file.rules ?? acc.rules,
     inheritGlobalRules: file.inheritGlobalRules ?? acc.inheritGlobalRules,
@@ -196,6 +224,10 @@ function mergeProfiles(
       timeoutMinutes: override.timeoutMinutes ?? base.timeoutMinutes,
       budgetUsd: override.budgetUsd ?? base.budgetUsd,
       instructions: override.instructions ?? base.instructions,
+      // Rule selection is the profile's own; a new custom profile does not
+      // inherit standard's (standard has none), so it stays undefined there.
+      rules: override.rules ?? acc[name]?.rules,
+      inheritProjectRules: override.inheritProjectRules ?? acc[name]?.inheritProjectRules,
     };
   }
   return merged;
