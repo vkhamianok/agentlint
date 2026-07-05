@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2 — 2026-07-05
 
 - **Pluggable engine — codex alongside claude.** agentlint can now review with
   the OpenAI Codex CLI as well as claude, and picks between them sensibly:

@@ -1,7 +1,7 @@
 {
   "name": "@vkhamianok/agentlint",
-  "version": "0.4.1",
-  "description": "A semantic review gate for agent-written code, powered by the Claude CLI",
+  "version": "0.4.2",
+  "description": "A semantic review gate for agent-written code, powered by the Claude and Codex CLIs",
   "type": "module",
   "repository": {
     "type": "git",
