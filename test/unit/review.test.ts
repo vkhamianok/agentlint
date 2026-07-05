@@ -160,6 +160,21 @@ describe('runReview', () => {
     expect(call.prompt).not.toContain('elsewhere.js');
   });
 
+  it('accepts an ad-hoc path glob as --scope, without a config entry', async () => {
+    const repo = await makeRepo();
+    await write(repo, 'services/api-auth/login.js', 'export const login = 1;\n');
+    await write(repo, 'services/orchestrator/run.js', 'export const run = 2;\n');
+    const engine = vi.fn().mockResolvedValue(envelope(cleanReview));
+
+    const outcome = await runReview({ cwd: repo, scope: 'services/api-auth/**', engine });
+
+    if (outcome.kind !== 'reviewed') throw new Error('unreachable');
+    expect(outcome.target).toContain('scope "services/api-auth/**"');
+    const call = engine.mock.calls[0]![0];
+    expect(call.prompt).toContain('services/api-auth/login.js');
+    expect(call.prompt).not.toContain('services/orchestrator/run.js');
+  });
+
   it("uses a profile's defaultScope when no --scope is given, and --scope overrides it", async () => {
     const repo = await makeRepo();
     await mkdir(path.join(repo, '.agentlint'), { recursive: true });

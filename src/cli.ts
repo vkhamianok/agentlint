@@ -70,7 +70,10 @@ function reviewTarget(name: string, description: string, isDefault = false): Com
       '--profile <name>',
       `profile: ${BUILTIN_PROFILES.join(' | ')} or a custom one (default: by context)`,
     )
-    .option('--scope <name>', 'restrict the review to a named scope from the config')
+    .option(
+      '--scope <name|glob>',
+      'restrict to a named scope, or an ad-hoc path glob like "src/**"',
+    )
     .option('--non-interactive', 'never prompt; behave like a hook/CI run')
     .option('--no-cache', 'ignore the pass-verdict cache for this run')
     .option('--report <path>', 'also write a JSON report to this file, or "-" for JSON on stdout')

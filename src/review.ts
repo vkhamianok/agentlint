@@ -1,5 +1,5 @@
 import { type CacheMeta, cacheDir, cacheKey, readCache, writeCache } from './cache.js';
-import { type AgentlintConfig, ConfigError, loadConfig } from './config.js';
+import { type AgentlintConfig, ConfigError, SCOPE_NAME_PATTERN, loadConfig } from './config.js';
 import { ClaudeEngineError, runClaude } from './engine/claude.js';
 import {
   type ProfileName,
@@ -280,20 +280,27 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
  * a stale defaultProfile entry) — that must fail loudly, not fall through.
  */
 /**
- * Turns a --scope name into its include globs, or undefined when no scope was
- * asked for. An unknown name is a user error (a typo, a stale scope) — fail
- * loudly rather than silently reviewing the whole repo.
+ * Turns a --scope value into its include globs, or undefined when no scope was
+ * asked for. A value is a named scope from the config, or — when it is not a
+ * valid scope name (a scope name is kebab, so anything with a slash, star, or
+ * dot is not one) — an ad-hoc path glob (comma-separate several), so a one-off
+ * review needs no config entry. A bare name that is not defined is a user error
+ * (a typo, a stale scope), so fail loudly rather than review the whole repo.
  */
-function resolveScope(name: string | undefined, config: AgentlintConfig): string[] | undefined {
-  if (!name) return undefined;
-  const globs = config.scopes[name];
-  if (!globs) {
-    const defined = Object.keys(config.scopes).sort().join(', ') || '(none defined)';
-    throw new ConfigError(
-      `Unknown scope "${name}". Defined scopes: ${defined}. Add one under "scopes" in .agentlint/config.json.`,
-    );
+function resolveScope(value: string | undefined, config: AgentlintConfig): string[] | undefined {
+  if (!value) return undefined;
+  const named = config.scopes[value];
+  if (named) return named;
+  if (!SCOPE_NAME_PATTERN.test(value)) {
+    return value
+      .split(',')
+      .map((glob) => glob.trim())
+      .filter(Boolean);
   }
-  return globs;
+  const defined = Object.keys(config.scopes).sort().join(', ') || '(none defined)';
+  throw new ConfigError(
+    `Unknown scope "${value}". Defined scopes: ${defined}. Add one under "scopes", or pass a path glob like "src/**".`,
+  );
 }
 
 function resolveProfileName(opts: ReviewRunOptions, config: AgentlintConfig): ProfileName {

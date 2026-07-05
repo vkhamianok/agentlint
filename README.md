@@ -92,6 +92,15 @@ agentlint review snapshot --scope orchestrator   # only that subsystem
 agentlint review staged --scope web              # only staged changes under apps/web
 ```
 
+`--scope` also takes an ad-hoc path glob, so a one-off review needs no config
+entry — a value that is not a defined scope name is treated as a glob (comma-
+separate several):
+
+```sh
+agentlint review snapshot --scope "services/api-auth/**"
+agentlint review snapshot --scope "services/api-auth/**,packages/shared/**"
+```
+
 Scopes turn a snapshot review of a large monorepo from one thin pass over
 everything into a focused, thorough pass over one part. An unknown `--scope`
 name fails loudly. Scopes and `--profile` compose:
