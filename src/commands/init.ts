@@ -1,9 +1,12 @@
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { Command } from 'commander';
 import { execa } from 'execa';
+import pc from 'picocolors';
 
 import { ConfigError } from '../config.js';
+import { resolveRepoRoot } from '../targets.js';
 
 export interface InitStep {
   name: string;
@@ -123,4 +126,34 @@ async function wireHook(repoRoot: string): Promise<InitStep> {
   }
   await appendFile(hookFile, `${HOOK_LINE}\n`);
   return { name: hookFile, status: 'updated', detail: `appended: ${HOOK_LINE}` };
+}
+
+/** Registers `agentlint init`. */
+export function registerInit(program: Command): void {
+  program
+    .command('init')
+    .description('set up agentlint in this repository (idempotent)')
+    .option('--hook', 'also append the review gate to .husky/pre-commit')
+    .action(async (opts: { hook?: boolean }) => {
+      const repoRoot = await resolveRepoRoot(process.cwd());
+      const steps = await initProject({ repoRoot, hook: Boolean(opts.hook) });
+
+      for (const step of steps) {
+        const badge =
+          step.status === 'skipped' ? pc.dim(step.status) : pc.green(pc.bold(step.status));
+        console.log(`${badge}  ${step.name} — ${step.detail}`);
+      }
+
+      console.log(
+        [
+          '',
+          pc.bold('Next steps:'),
+          '  npx agentlint                      review your uncommitted changes',
+          '  npx agentlint rule add <text>      add a project rule in one sentence',
+          ...(opts.hook
+            ? []
+            : ['  npx agentlint init --hook          gate every commit via husky pre-commit']),
+        ].join('\n'),
+      );
+    });
 }
