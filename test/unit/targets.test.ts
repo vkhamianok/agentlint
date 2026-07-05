@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { TargetError, normalizeGlobs, resolveTarget } from '../../src/targets.js';
+import { TargetError, normalizeGlobs, resolveTarget } from '../../src/review/targets.js';
 import { git, makeRepo, write } from '../helpers/repo.js';
 
 describe('working-tree target', () => {

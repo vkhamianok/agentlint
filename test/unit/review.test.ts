@@ -4,8 +4,8 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ClaudeEnvelope } from '../../src/engine/claude.js';
-import { buildReviewPrompt } from '../../src/prompt.js';
-import { runReview } from '../../src/review.js';
+import { buildReviewPrompt } from '../../src/review/prompt.js';
+import { runReview } from '../../src/review/run.js';
 import { makeRepo, write } from '../helpers/repo.js';
 
 function envelope(structuredOutput: unknown): ClaudeEnvelope {

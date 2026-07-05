@@ -6,7 +6,7 @@ import { execa } from 'execa';
 import pc from 'picocolors';
 
 import { ConfigError } from '../config.js';
-import { resolveRepoRoot } from '../targets.js';
+import { resolveRepoRoot } from '../review/targets.js';
 
 export interface InitStep {
   name: string;

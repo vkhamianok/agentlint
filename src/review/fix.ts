@@ -1,6 +1,6 @@
-import type { Answer } from './commands/interactive.js';
-import type { EngineFn } from './review.js';
-import type { Finding } from './schema.js';
+import type { Answer } from '../commands/interactive.js';
+import type { Finding } from '../schema.js';
+import type { EngineFn } from './run.js';
 
 const FIXER_SYSTEM = `You are a fixer. An independent code review found the problems below in
 this repository's uncommitted changes. Your only job is to fix the confirmed

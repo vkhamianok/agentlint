@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { runReview } from '../../src/review.js';
+import { runReview } from '../../src/review/run.js';
 import { git, makeRepo, write } from '../helpers/repo.js';
 
 /**

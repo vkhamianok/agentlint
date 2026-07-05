@@ -1,4 +1,4 @@
-import type { Rule } from './rules.js';
+import type { Rule } from '../rules.js';
 import type { ChangeSet } from './targets.js';
 
 const outputContract = (

@@ -14,10 +14,10 @@ import {
 } from '../config.js';
 import { runClaude } from '../engine/claude.js';
 import { BUILTIN_PROFILES } from '../profiles.js';
-import type { EngineFn } from '../review.js';
+import type { EngineFn } from '../review/run.js';
+import { resolveRepoRoot } from '../review/targets.js';
 import type { RuleSelector } from '../rules.js';
 import { toCliJsonSchema } from '../schema.js';
-import { resolveRepoRoot } from '../targets.js';
 import { withProgress } from './progress.js';
 import { configFilePath, generatorModel } from './shared.js';
 

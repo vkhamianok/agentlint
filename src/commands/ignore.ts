@@ -3,10 +3,10 @@ import os from 'node:os';
 import { Command } from 'commander';
 import pc from 'picocolors';
 
-import { cacheDir, readAllEntries, writeCache } from '../cache.js';
 import { ConfigError } from '../config.js';
+import { cacheDir, readAllEntries, writeCache } from '../review/cache.js';
+import { resolveRepoRoot } from '../review/targets.js';
 import { type Resolution, type Severity, deriveVerdict } from '../schema.js';
-import { resolveRepoRoot } from '../targets.js';
 
 export interface IgnoreResult {
   scope: 'finding' | 'run';

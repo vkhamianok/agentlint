@@ -1,14 +1,12 @@
-import { type CacheMeta, cacheDir, cacheKey, readCache, writeCache } from './cache.js';
-import { type AgentlintConfig, ConfigError, SCOPE_NAME_PATTERN, loadConfig } from './config.js';
-import { ClaudeEngineError, runClaude } from './engine/claude.js';
+import { type AgentlintConfig, ConfigError, SCOPE_NAME_PATTERN, loadConfig } from '../config.js';
+import { ClaudeEngineError, runClaude } from '../engine/claude.js';
 import {
   type ProfileName,
   type ResolvedProfile,
   type RunContext,
   resolveProfile,
-} from './profiles.js';
-import { buildRefutePrompt, buildReviewPrompt } from './prompt.js';
-import { loadPrinciples, loadRules } from './rules.js';
+} from '../profiles.js';
+import { loadPrinciples, loadRules } from '../rules.js';
 import {
   type Finding,
   type ResolvedFinding,
@@ -21,7 +19,9 @@ import {
   reviewerOutputJsonSchema,
   reviewerOutputSchema,
   severityRank,
-} from './schema.js';
+} from '../schema.js';
+import { type CacheMeta, cacheDir, cacheKey, readCache, writeCache } from './cache.js';
+import { buildRefutePrompt, buildReviewPrompt } from './prompt.js';
 import {
   type ChangeSet,
   TargetError,

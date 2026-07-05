@@ -1,4 +1,4 @@
-import type { ReviewResult } from './schema.js';
+import type { ReviewResult } from '../schema.js';
 
 /**
  * Deterministic gate: 0 = pass, 1 = block, like eslint. The verdict is already

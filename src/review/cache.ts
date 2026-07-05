@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execa } from 'execa';
 import { z } from 'zod';
 
-import { type ReviewResult, reviewResultSchema } from './schema.js';
+import { type ReviewResult, reviewResultSchema } from '../schema.js';
 
 /**
  * A content-addressed cache of review results, so a hook does not re-review

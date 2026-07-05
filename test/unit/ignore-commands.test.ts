@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ignoreFinding, ignoreRun } from '../../src/commands/ignore.js';
 import type { ClaudeEnvelope } from '../../src/engine/claude.js';
-import { runReview } from '../../src/review.js';
+import { runReview } from '../../src/review/run.js';
 import { makeRepo, write } from '../helpers/repo.js';
 
 function envelope(structuredOutput: unknown): ClaudeEnvelope {

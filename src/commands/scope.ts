@@ -9,7 +9,7 @@ import {
   readConfigObject,
   writeConfigObject,
 } from '../config.js';
-import { normalizeGlobs, resolveRepoRoot } from '../targets.js';
+import { normalizeGlobs, resolveRepoRoot } from '../review/targets.js';
 import { configFilePath } from './shared.js';
 
 export interface ScopeListing {

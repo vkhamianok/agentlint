@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { gateExitCode } from '../../src/gate.js';
+import { gateExitCode } from '../../src/review/gate.js';
 import type { ReviewResult } from '../../src/schema.js';
 
 function result(verdict: ReviewResult['verdict']): ReviewResult {

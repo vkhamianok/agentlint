@@ -9,7 +9,8 @@ import { z } from 'zod';
 
 import { DEFAULT_CONFIG, loadConfig } from '../config.js';
 import { runClaude } from '../engine/claude.js';
-import type { EngineFn } from '../review.js';
+import type { EngineFn } from '../review/run.js';
+import { resolveRepoRoot } from '../review/targets.js';
 import {
   type Rule,
   RuleError,
@@ -18,7 +19,6 @@ import {
   readLibraryRuleRaw,
 } from '../rules.js';
 import { type Severity, severities, toCliJsonSchema } from '../schema.js';
-import { resolveRepoRoot } from '../targets.js';
 import { withProgress } from './progress.js';
 import { parseSeverityOption } from './shared.js';
 

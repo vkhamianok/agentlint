@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ClaudeEnvelope } from '../../src/engine/claude.js';
-import { runFixes } from '../../src/fix.js';
+import { runFixes } from '../../src/review/fix.js';
 import type { Finding } from '../../src/schema.js';
 
 function envelope(structuredOutput: unknown, result = ''): ClaudeEnvelope {

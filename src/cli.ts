@@ -11,8 +11,8 @@ import { registerRule } from './commands/rule.js';
 import { registerScope } from './commands/scope.js';
 import { ConfigError } from './config.js';
 import { ClaudeEngineError } from './engine/claude.js';
+import { TargetError } from './review/targets.js';
 import { RuleError } from './rules.js';
-import { TargetError } from './targets.js';
 
 const program = new Command();
 

@@ -2,9 +2,15 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { type CacheEntry, cacheDir, cacheKey, readCache, writeCache } from '../../src/cache.js';
 import type { ClaudeEnvelope } from '../../src/engine/claude.js';
-import { runReview } from '../../src/review.js';
+import {
+  type CacheEntry,
+  cacheDir,
+  cacheKey,
+  readCache,
+  writeCache,
+} from '../../src/review/cache.js';
+import { runReview } from '../../src/review/run.js';
 import type { ReviewResult } from '../../src/schema.js';
 import { makeRepo, write } from '../helpers/repo.js';
 

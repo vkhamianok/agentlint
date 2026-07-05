@@ -2,8 +2,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ConfigError, DEFAULT_CONFIG, loadConfig } from '../config.js';
+import { resolveRepoRoot } from '../review/targets.js';
 import { type Severity, severities } from '../schema.js';
-import { resolveRepoRoot } from '../targets.js';
 
 /** The config file the profile and scope commands read and write. */
 export async function configFilePath(global: boolean | undefined): Promise<string> {
