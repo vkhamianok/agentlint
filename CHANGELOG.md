@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 — 2026-07-05
+
+- `--scope` now also accepts an ad-hoc path glob, not only a name predefined
+  under `scopes`: `agentlint review snapshot --scope "services/api-auth/**"`
+  reviews just those paths with no config entry (comma-separate several). A
+  value that is not a valid scope name is treated as a glob, so named scopes
+  (kebab, no slashes) and globs never collide. It overrides a profile's
+  `defaultScope` like any explicit `--scope`.
+
 ## 0.4.0 — 2026-07-04
 
 New:
