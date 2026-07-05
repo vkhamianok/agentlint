@@ -10,7 +10,7 @@ import { registerReview } from './commands/review.js';
 import { registerRule } from './commands/rule/register.js';
 import { registerScope } from './commands/scope/register.js';
 import { ConfigError } from './config.js';
-import { ClaudeEngineError } from './engine/claude.js';
+import { EngineError } from './engine/index.js';
 import { TargetError } from './review/targets.js';
 import { RuleError } from './rules.js';
 
@@ -30,13 +30,13 @@ registerIgnore(program);
 
 program.parseAsync().catch((err: unknown) => {
   if (
-    err instanceof ClaudeEngineError ||
+    err instanceof EngineError ||
     err instanceof TargetError ||
     err instanceof RuleError ||
     err instanceof ConfigError
   ) {
     console.error(pc.red(err.message));
-    if (err instanceof ClaudeEngineError && err.detail) console.error(pc.dim(err.detail));
+    if (err instanceof EngineError && err.detail) console.error(pc.dim(err.detail));
   } else {
     console.error(err);
   }

@@ -1,5 +1,6 @@
 import { type AgentlintConfig, ConfigError, SCOPE_NAME_PATTERN, loadConfig } from '../config.js';
-import { ClaudeEngineError, runClaude } from '../engine/claude.js';
+import { EngineError, resolveEngine } from '../engine/index.js';
+import type { EngineFn } from '../engine/index.js';
 import {
   type ProfileName,
   type ResolvedProfile,
@@ -28,7 +29,7 @@ import {
   resolveTarget,
 } from './targets.js';
 
-export type EngineFn = typeof runClaude;
+export type { EngineFn };
 
 export interface ReviewRunOptions {
   cwd: string;
@@ -93,7 +94,11 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   if (isEmpty(changeSet)) return { kind: 'empty' };
   enforceSizeCap(changeSet, profile);
 
-  const engine = opts.engine ?? runClaude;
+  // Pick the provider from the model string ("openai:…" → codex) and pass it
+  // the bare model. A test-injected engine bypasses the registry.
+  const chosen = resolveEngine(profile.model);
+  const engine = opts.engine ?? chosen.engine;
+  const model = chosen.model;
   const [principles, rules] = await Promise.all([
     loadPrinciples(),
     loadRules(repoRoot, {
@@ -166,7 +171,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     cwd: repoRoot,
     jsonSchema: reviewerOutputJsonSchema,
     tools: profile.tools,
-    model: profile.model,
+    model,
     maxTurns: profile.maxTurns,
     maxBudgetUsd: profile.maxBudgetUsd,
     timeoutMs: profile.timeoutMs,
@@ -190,7 +195,8 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
         envelope.result,
       jsonSchema: reviewerOutputJsonSchema,
       tools: [],
-      model: 'haiku',
+      // Cheap salvage on claude (haiku); on another provider reuse its model.
+      model: chosen.provider === 'claude' ? 'haiku' : model,
       maxTurns: 4,
       maxBudgetUsd: 0.2,
       cwd: repoRoot,
@@ -205,7 +211,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   // surface it as an engine error (exit 2), never a silent pass.
   const parsed = reviewerOutputSchema.safeParse(structured);
   if (!parsed.success) {
-    throw new ClaudeEngineError(
+    throw new EngineError(
       'Reviewer output did not match the findings schema',
       parsed.error.message,
     );
@@ -215,7 +221,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   let findings: Finding[] = output.findings;
   let refutedCount = 0;
   if (profile.refute && findings.length > 0) {
-    const refutation = await refuteFindings(engine, repoRoot, profile, changeSet, findings);
+    const refutation = await refuteFindings(engine, repoRoot, model, changeSet, findings);
     refutedCount = findings.length - refutation.kept.length;
     costUsd += refutation.costUsd;
     findings = refutation.kept;

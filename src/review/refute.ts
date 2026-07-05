@@ -1,4 +1,3 @@
-import type { ResolvedProfile } from '../profiles.js';
 import { type Finding, refutationJsonSchema, refutationSchema, severityRank } from '../schema.js';
 import { buildRefutePrompt } from './prompt.js';
 import type { EngineFn } from './run.js';
@@ -22,7 +21,7 @@ const MAX_REFUTATIONS = 8;
 export async function refuteFindings(
   engine: EngineFn,
   repoRoot: string,
-  profile: ResolvedProfile,
+  model: string | undefined,
   changeSet: ChangeSet,
   findings: Finding[],
 ): Promise<{ kept: Finding[]; costUsd: number }> {
@@ -42,7 +41,7 @@ export async function refuteFindings(
           cwd: repoRoot,
           jsonSchema: refutationJsonSchema,
           tools: READ_TOOLS,
-          model: profile.model,
+          model,
           maxTurns: 15,
           maxBudgetUsd: 0.5,
           timeoutMs: 5 * 60 * 1000,

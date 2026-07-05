@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import pc from 'picocolors';
 
-import { runClaude } from '../../engine/claude.js';
+import { resolveEngine } from '../../engine/index.js';
 import { resolveRepoRoot } from '../../review/targets.js';
 import { withProgress } from '../progress.js';
 import { configFilePath, generatorModel } from '../shared.js';
@@ -34,12 +34,13 @@ export function registerProfile(program: Command): void {
         descriptionWords: string[],
         opts: { global?: boolean; model?: string; name?: string },
       ) => {
+        const gen = resolveEngine(await generatorModel(opts.global));
         const written = await withProgress('agentlint profile add', async () =>
           addProfile({
-            engine: runClaude,
+            engine: gen.engine,
             description: descriptionWords.join(' '),
             configPath: await configFilePath(opts.global),
-            generatorModel: await generatorModel(opts.global),
+            generatorModel: gen.model!,
             model: opts.model,
             name: opts.name,
             cwd: process.cwd(),
@@ -62,13 +63,14 @@ export function registerProfile(program: Command): void {
         instructionWords: string[],
         opts: { global?: boolean; model?: string },
       ) => {
+        const gen = resolveEngine(await generatorModel(opts.global));
         const written = await withProgress('agentlint profile edit', async () =>
           editProfile({
-            engine: runClaude,
+            engine: gen.engine,
             name,
             instruction: instructionWords.join(' '),
             configPath: await configFilePath(opts.global),
-            generatorModel: await generatorModel(opts.global),
+            generatorModel: gen.model!,
             model: opts.model,
             cwd: process.cwd(),
           }),

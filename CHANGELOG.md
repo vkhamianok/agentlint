@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Pluggable engine — codex alongside claude.** A profile's model may now name
+  a provider: `claude:opus` or `openai:gpt-5.5-mini`. A bare model (`opus`,
+  `haiku-4.5`) still defaults to claude, so existing configs are unchanged.
+  `openai:` (alias `codex:`) routes to the OpenAI Codex CLI (`codex exec`),
+  using its `--output-schema` for the same validated structured output claude
+  gives via `--json-schema`. Both spawn with an argv array, never a shell.
+  Limitations on codex: no per-run USD cap (`budgetUsd` is a no-op there — the
+  run is bounded by the profile timeout instead) and no USD cost in the report;
+  `--fix` still runs on claude.
 - `agentlint scope add | edit | remove | list` manages named scopes from the
   CLI, like `profile` and `rule` — no more hand-editing the `scopes` map in
   `config.json`. It is a plain config edit (no LLM); globs are stored canonical

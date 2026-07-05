@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import { DEFAULT_CONFIG, loadConfig } from '../../config.js';
-import { runClaude } from '../../engine/claude.js';
+import { resolveEngine } from '../../engine/index.js';
 import { resolveRepoRoot } from '../../review/targets.js';
 import { type Severity, severities } from '../../schema.js';
 import { withProgress } from '../progress.js';
@@ -45,12 +45,13 @@ export function registerRule(program: Command): void {
         opts: { global?: boolean; severity?: string; name?: string },
       ) => {
         const target = await ruleTarget(opts.global);
+        const { engine, model } = resolveEngine(target.model);
         const rule = await withProgress('agentlint rule add', () =>
           addRule({
-            engine: runClaude,
+            engine,
             description: descriptionWords.join(' '),
             targetDir: target.dir,
-            model: target.model,
+            model: model!,
             severity: parseSeverityOption(opts.severity, '--severity'),
             name: opts.name,
             cwd: process.cwd(),
@@ -75,13 +76,14 @@ export function registerRule(program: Command): void {
         opts: { global?: boolean; severity?: string },
       ) => {
         const target = await ruleTarget(opts.global);
+        const { engine, model } = resolveEngine(target.model);
         const rule = await withProgress('agentlint rule edit', () =>
           editRule({
-            engine: runClaude,
+            engine,
             slug,
             instruction: instructionWords.join(' '),
             targetDir: target.dir,
-            model: target.model,
+            model: model!,
             severity: parseSeverityOption(opts.severity, '--severity'),
             cwd: process.cwd(),
           }),
@@ -124,9 +126,9 @@ export function registerRule(program: Command): void {
     .description('audit the rule set for contradictions, duplication, vagueness, and noise risks')
     .action(async () => {
       const repoRoot = await resolveRepoRoot(process.cwd());
-      const model = (await loadConfig(repoRoot)).profiles.standard.model;
+      const { engine, model } = resolveEngine((await loadConfig(repoRoot)).profiles.standard.model);
       const audit = await withProgress('agentlint rule check', () =>
-        checkRules({ engine: runClaude, repoRoot, model }),
+        checkRules({ engine, repoRoot, model: model! }),
       );
 
       console.log(`\n${audit.summary}\n`);

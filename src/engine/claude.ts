@@ -6,6 +6,8 @@ import readline from 'node:readline';
 
 import { ExecaError, execa } from 'execa';
 
+import { EngineError, type EngineRunOptions } from './types.js';
+
 /**
  * The one and only place that spawns the Claude CLI.
  *
@@ -32,28 +34,6 @@ import { ExecaError, execa } from 'execa';
  *   --no-session-persistence  reviews must not clutter the user's session list
  */
 
-export interface ClaudeRunOptions {
-  prompt: string;
-  appendSystemPrompt?: string;
-  /** JSON Schema the CLI validates the structured output against. */
-  jsonSchema?: object;
-  /** Built-in tools to expose. Empty array = no tools at all. */
-  tools?: string[];
-  /** e.g. "acceptEdits" for the fixer; reviews never set this. */
-  permissionMode?: string;
-  model?: string;
-  maxBudgetUsd?: number;
-  maxTurns?: number;
-  cwd?: string;
-  timeoutMs?: number;
-  /**
-   * Called with a short human phrase per tool the reviewer runs ("reading
-   * report.js"). When set, the run streams (stream-json) so the steps arrive
-   * live; when absent, the run takes the plain single-envelope path.
-   */
-  onStep?: (step: string) => void;
-}
-
 /** The envelope `--output-format json` prints on stdout (fields we rely on). */
 export interface ClaudeEnvelope {
   type: 'result';
@@ -68,22 +48,12 @@ export interface ClaudeEnvelope {
   permission_denials?: unknown[];
 }
 
-export class ClaudeEngineError extends Error {
-  constructor(
-    message: string,
-    readonly detail?: string,
-  ) {
-    super(message);
-    this.name = 'ClaudeEngineError';
-  }
-}
-
 /** Overridable so tests can point the adapter at a stub binary. */
 export function claudeBinary(): string {
   return process.env.AGENTLINT_CLAUDE_BIN ?? 'claude';
 }
 
-export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope> {
+export async function runClaude(opts: EngineRunOptions): Promise<ClaudeEnvelope> {
   // Streaming (stream-json) only when a caller is watching the steps —
   // agents, hooks, CI, and tests take the plain single-envelope path.
   const streaming = Boolean(opts.onStep);
@@ -113,20 +83,14 @@ export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope>
     try {
       envelope = JSON.parse(stdout) as ClaudeEnvelope;
     } catch {
-      throw new ClaudeEngineError(
-        'Claude CLI did not print a JSON envelope',
-        stdout.slice(0, 2000),
-      );
+      throw new EngineError('Claude CLI did not print a JSON envelope', stdout.slice(0, 2000));
     }
     if (process.env.AGENTLINT_DEBUG) {
       console.error(`[agentlint debug] claude ${args.join(' ')}`);
       console.error(`[agentlint debug] envelope: ${stdout}`);
     }
     if (envelope.is_error) {
-      throw new ClaudeEngineError(
-        `Claude CLI reported an error (${envelope.subtype})`,
-        envelope.result,
-      );
+      throw new EngineError(`Claude CLI reported an error (${envelope.subtype})`, envelope.result);
     }
     return envelope;
   } finally {
@@ -139,7 +103,7 @@ export async function runClaude(opts: ClaudeRunOptions): Promise<ClaudeEnvelope>
 // config (e.g. a crafted model name) inject shell commands — in a tool whose
 // whole job is running untrusted code. execa 9 spawns npm .cmd shims on
 // Windows directly, so no shell fallback is needed.
-async function spawnClaude(args: string[], opts: ClaudeRunOptions): Promise<string> {
+async function spawnClaude(args: string[], opts: EngineRunOptions): Promise<string> {
   const bin = claudeBinary();
   const result = await execa(bin, args, {
     input: opts.prompt,
@@ -156,7 +120,7 @@ async function spawnClaude(args: string[], opts: ClaudeRunOptions): Promise<stri
  * the reviewer runs as a live step, and keep the final `result` event — which
  * is the same envelope the plain path returns.
  */
-async function spawnStreaming(args: string[], opts: ClaudeRunOptions): Promise<string> {
+async function spawnStreaming(args: string[], opts: EngineRunOptions): Promise<string> {
   const bin = claudeBinary();
   const subprocess = execa(bin, args, {
     input: opts.prompt,
@@ -232,26 +196,26 @@ function clip(s: string): string {
 function checkResult(
   result: unknown,
   bin: string,
-  opts: ClaudeRunOptions,
+  opts: EngineRunOptions,
   output: string,
   stderr?: string,
 ): string {
   const err = result instanceof Error ? (result as ExecaError) : undefined;
   if (err?.timedOut) {
-    throw new ClaudeEngineError(
+    throw new EngineError(
       `The Claude CLI run timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s. ` +
         'Try a deeper profile (--profile standard) or a smaller change.',
     );
   }
   if (err && err.exitCode === undefined) {
-    throw new ClaudeEngineError(
+    throw new EngineError(
       `Could not run the Claude CLI ("${bin}"). Is Claude Code installed and on PATH?`,
       err.message,
     );
   }
   const exitCode = (result as { exitCode?: number }).exitCode;
   if (exitCode !== 0 && !output.trimStart().startsWith('{')) {
-    throw new ClaudeEngineError(`Claude CLI exited with code ${exitCode}`, stderr || output);
+    throw new EngineError(`Claude CLI exited with code ${exitCode}`, stderr || output);
   }
   return output;
 }
