@@ -1,4 +1,4 @@
-import type { Answer } from './interactive.js';
+import type { Answer } from './commands/interactive.js';
 import type { EngineFn } from './review.js';
 import type { Finding } from './schema.js';
 

@@ -3,8 +3,8 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { initProject } from '../../src/commands/init.js';
 import { ConfigError } from '../../src/config.js';
-import { initProject } from '../../src/init.js';
 import { makeRepo } from '../helpers/repo.js';
 
 const engineOk = vi.fn().mockResolvedValue('9.9.9 (Claude Code)');

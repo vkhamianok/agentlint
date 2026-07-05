@@ -4,14 +4,14 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { ConfigError } from '../../src/config.js';
-import type { ClaudeEnvelope } from '../../src/engine/claude.js';
 import {
   addProfile,
   editProfile,
   listProfiles,
   removeProfile,
-} from '../../src/profile-commands.js';
+} from '../../src/commands/profile.js';
+import { ConfigError } from '../../src/config.js';
+import type { ClaudeEnvelope } from '../../src/engine/claude.js';
 
 function envelope(structuredOutput: unknown): ClaudeEnvelope {
   return {

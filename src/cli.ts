@@ -7,29 +7,29 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import pkg from '../package.json' with { type: 'json' };
-import { ConfigError, DEFAULT_CONFIG, loadConfig } from './config.js';
-import { ClaudeEngineError, runClaude } from './engine/claude.js';
-import { runFixes } from './fix.js';
-import { gateExitCode } from './gate.js';
-import { ignoreFinding, ignoreRun } from './ignore-commands.js';
-import { initProject } from './init.js';
-import { collectAnswers, confirmFindings } from './interactive.js';
+import { ignoreFinding, ignoreRun } from './commands/ignore.js';
+import { initProject } from './commands/init.js';
+import { collectAnswers, confirmFindings } from './commands/interactive.js';
 import {
   type WrittenProfile,
   addProfile,
   editProfile,
   listProfiles,
   removeProfile,
-} from './profile-commands.js';
+} from './commands/profile.js';
+import { addRule, checkRules, editRule, listRules, removeRule } from './commands/rule.js';
+import { addScope, editScope, listScopes, removeScope } from './commands/scope.js';
+import { ConfigError, DEFAULT_CONFIG, loadConfig } from './config.js';
+import { ClaudeEngineError, runClaude } from './engine/claude.js';
+import { runFixes } from './fix.js';
+import { gateExitCode } from './gate.js';
 import { BUILTIN_PROFILES, detectContext } from './profiles.js';
 import type { ReportMeta } from './report/json.js';
 import { renderTerminalReport } from './report/terminal.js';
 import { emitReports } from './report/write.js';
 import { type ReviewRunOutcome, runReview } from './review.js';
-import { addRule, checkRules, editRule, listRules, removeRule } from './rule-commands.js';
 import { RuleError } from './rules.js';
 import { type Severity, severities, severityRank } from './schema.js';
-import { addScope, editScope, listScopes, removeScope } from './scope-commands.js';
 import { TargetError, type TargetSpec, resolveRepoRoot } from './targets.js';
 
 const program = new Command();

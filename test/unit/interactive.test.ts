@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { collectAnswers, confirmFindings } from '../../src/interactive.js';
+import { collectAnswers, confirmFindings } from '../../src/commands/interactive.js';
 import type { Finding } from '../../src/schema.js';
 
 vi.mock('node:readline/promises', () => ({

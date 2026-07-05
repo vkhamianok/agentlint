@@ -1,8 +1,8 @@
 import os from 'node:os';
 
-import { cacheDir, readAllEntries, writeCache } from './cache.js';
-import { ConfigError } from './config.js';
-import { type Resolution, type Severity, deriveVerdict } from './schema.js';
+import { cacheDir, readAllEntries, writeCache } from '../cache.js';
+import { ConfigError } from '../config.js';
+import { type Resolution, type Severity, deriveVerdict } from '../schema.js';
 
 export interface IgnoreResult {
   scope: 'finding' | 'run';

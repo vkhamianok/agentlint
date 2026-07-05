@@ -2,7 +2,7 @@ import readline from 'node:readline/promises';
 
 import pc from 'picocolors';
 
-import type { Finding } from './schema.js';
+import type { Finding } from '../schema.js';
 
 export interface Answer {
   question: string;

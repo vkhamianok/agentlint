@@ -9,11 +9,11 @@ import {
   loadConfig,
   readConfigObject,
   writeConfigObject,
-} from './config.js';
-import { BUILTIN_PROFILES } from './profiles.js';
-import type { EngineFn } from './review.js';
-import type { RuleSelector } from './rules.js';
-import { toCliJsonSchema } from './schema.js';
+} from '../config.js';
+import { BUILTIN_PROFILES } from '../profiles.js';
+import type { EngineFn } from '../review.js';
+import type { RuleSelector } from '../rules.js';
+import { toCliJsonSchema } from '../schema.js';
 
 const BUILTINS: readonly string[] = BUILTIN_PROFILES;
 

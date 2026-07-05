@@ -4,16 +4,16 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import { z } from 'zod';
 
-import { loadConfig } from './config.js';
-import type { EngineFn } from './review.js';
+import { loadConfig } from '../config.js';
+import type { EngineFn } from '../review.js';
 import {
   type Rule,
   RuleError,
   assertRuleMarkdown,
   loadRules,
   readLibraryRuleRaw,
-} from './rules.js';
-import { type Severity, severities, toCliJsonSchema } from './schema.js';
+} from '../rules.js';
+import { type Severity, severities, toCliJsonSchema } from '../schema.js';
 
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 

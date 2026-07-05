@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { execa } from 'execa';
 
-import { ConfigError } from './config.js';
+import { ConfigError } from '../config.js';
 
 export interface InitStep {
   name: string;

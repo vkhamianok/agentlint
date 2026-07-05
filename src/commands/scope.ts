@@ -5,8 +5,8 @@ import {
   loadConfig,
   readConfigObject,
   writeConfigObject,
-} from './config.js';
-import { normalizeGlobs } from './targets.js';
+} from '../config.js';
+import { normalizeGlobs } from '../targets.js';
 
 export interface ScopeListing {
   name: string;
