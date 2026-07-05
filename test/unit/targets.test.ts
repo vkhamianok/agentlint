@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { TargetError, resolveTarget } from '../../src/targets.js';
+import { TargetError, normalizeGlobs, resolveTarget } from '../../src/targets.js';
 import { git, makeRepo, write } from '../helpers/repo.js';
 
 describe('working-tree target', () => {
@@ -193,6 +193,21 @@ describe('scope filtering on a diff', () => {
     expect(changeSet.files).toEqual(['services/orchestrator/run.js']);
     expect(changeSet.diff).toContain('services/orchestrator/run.js');
     expect(changeSet.diff).not.toContain('packages/util.js');
+  });
+});
+
+describe('normalizeGlobs', () => {
+  it('converts backslashes to slashes on Windows, leaves POSIX untouched', () => {
+    // Windows: a backslash path a user typed becomes a real glob.
+    expect(normalizeGlobs(['services\\orchestrator\\**'], true)).toEqual([
+      'services/orchestrator/**',
+    ]);
+    // POSIX: backslash is an escape / valid filename char — do not touch it.
+    expect(normalizeGlobs(['services\\orchestrator\\**'], false)).toEqual([
+      'services\\orchestrator\\**',
+    ]);
+    // Forward-slash globs are unchanged on either platform.
+    expect(normalizeGlobs(['a/b/**', 'c/*.ts'], true)).toEqual(['a/b/**', 'c/*.ts']);
   });
 });
 

@@ -42,10 +42,11 @@ export async function resolveTarget(
   ignore: string[] = [],
   scope: string[] = [],
 ): Promise<ChangeSet> {
-  const isIgnored = ignore.length > 0 ? picomatch(ignore, { dot: true }) : () => false;
+  const isIgnored =
+    ignore.length > 0 ? picomatch(normalizeGlobs(ignore), { dot: true }) : () => false;
   // A scope is the inverse of ignore: an include-filter that keeps only files
   // under its globs. No scope means "everything" (in-scope is always true).
-  const inScope = scope.length > 0 ? picomatch(scope, { dot: true }) : () => true;
+  const inScope = scope.length > 0 ? picomatch(normalizeGlobs(scope), { dot: true }) : () => true;
   const isExcluded: Matcher = (p) => isIgnored(p) || !inScope(p);
   switch (spec.kind) {
     case 'working-tree':
@@ -62,6 +63,20 @@ export async function resolveTarget(
 }
 
 type Matcher = (p: string) => boolean;
+
+/**
+ * Git reports paths with forward slashes even on Windows, but a Windows user
+ * naturally types a glob with backslashes (`services\orchestrator\**`), which
+ * picomatch reads as escapes — so it matches nothing. Normalize backslashes to
+ * slashes ONLY on Windows, where `\` is a path separator. On POSIX `\` is a
+ * valid filename character and a glob escape, so it is left untouched.
+ */
+export function normalizeGlobs(
+  globs: string[],
+  isWindows: boolean = process.platform === 'win32',
+): string[] {
+  return isWindows ? globs.map((g) => g.replace(/\\/g, '/')) : globs;
+}
 
 async function resolveWorkingTree(repoRoot: string, isExcluded: Matcher): Promise<ChangeSet> {
   await ensureHead(repoRoot);

@@ -5,6 +5,10 @@
 - `profile list` now orders built-ins by tier (quick → standard → deep) and
   then custom profiles alphabetically, instead of one flat alphabetical list
   that interleaved the two and scrambled the built-in order.
+- `--scope` and `ignore` globs with Windows backslashes (e.g.
+  `services\orchestrator\**`) now match. Backslashes are normalized to slashes
+  only on Windows, where `\` is a path separator; on POSIX they are left
+  untouched (there `\` is a glob escape and a valid filename character).
 
 ## 0.4.1 — 2026-07-05
 
