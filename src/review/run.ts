@@ -14,14 +14,12 @@ import {
   type Severity,
   deriveVerdict,
   findingId,
-  refutationJsonSchema,
-  refutationSchema,
   reviewerOutputJsonSchema,
   reviewerOutputSchema,
-  severityRank,
 } from '../schema.js';
 import { type CacheMeta, cacheDir, cacheKey, readCache, writeCache } from './cache.js';
-import { buildRefutePrompt, buildReviewPrompt } from './prompt.js';
+import { buildReviewPrompt } from './prompt.js';
+import { refuteFindings } from './refute.js';
 import {
   type ChangeSet,
   TargetError,
@@ -74,8 +72,6 @@ export type ReviewRunOutcome =
       /** The cache key of this run; the handle `ignore --run` points at. */
       runId: string;
     };
-
-const READ_TOOLS = ['Read', 'Grep', 'Glob'];
 
 export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcome> {
   const startedAt = Date.now();
@@ -313,59 +309,6 @@ function resolveProfileName(opts: ReviewRunOptions, config: AgentlintConfig): Pr
     );
   }
   return name;
-}
-
-/**
- * Caps the refutation pass: total spend and concurrent claude processes must
- * not scale unboundedly with finding count. Blockers are verified first (they
- * gate the commit); findings past the cap are kept un-refuted, matching the
- * "never drop a finding on failure" rule.
- */
-const MAX_REFUTATIONS = 8;
-
-async function refuteFindings(
-  engine: EngineFn,
-  repoRoot: string,
-  profile: ResolvedProfile,
-  changeSet: ChangeSet,
-  findings: Finding[],
-): Promise<{ kept: Finding[]; costUsd: number }> {
-  const byPriority = [...findings.keys()].sort(
-    (a, b) => severityRank(findings[b]!.severity) - severityRank(findings[a]!.severity),
-  );
-  const toRefute = new Set(byPriority.slice(0, MAX_REFUTATIONS));
-
-  const verdicts = await Promise.all(
-    findings.map(async (finding, index) => {
-      if (!toRefute.has(index)) return { refuted: false, costUsd: 0 };
-      // A failed or unparseable refutation must never drop a finding, and
-      // must never sink the whole (already paid for) review.
-      try {
-        const envelope = await engine({
-          prompt: buildRefutePrompt(JSON.stringify(finding, null, 2), changeSet),
-          cwd: repoRoot,
-          jsonSchema: refutationJsonSchema,
-          tools: READ_TOOLS,
-          model: profile.model,
-          maxTurns: 15,
-          maxBudgetUsd: 0.5,
-          timeoutMs: 5 * 60 * 1000,
-        });
-        const parsed = refutationSchema.safeParse(envelope.structured_output);
-        return {
-          refuted: parsed.success ? parsed.data.refuted : false,
-          costUsd: envelope.total_cost_usd ?? 0,
-        };
-      } catch {
-        return { refuted: false, costUsd: 0 };
-      }
-    }),
-  );
-
-  return {
-    kept: findings.filter((_, i) => !verdicts[i]!.refuted),
-    costUsd: verdicts.reduce((sum, v) => sum + v.costUsd, 0),
-  };
 }
 
 function isEmpty(changeSet: ChangeSet): boolean {
