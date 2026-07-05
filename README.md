@@ -218,6 +218,21 @@ budgets it. Three are built in:
 profile; `--profile <name>` overrides it. The set is open — see
 [Custom profiles](#custom-profiles) to add your own.
 
+### Engines: Claude and Codex
+
+A profile's `model` chooses the engine. A bare model runs on Claude Code —
+`"opus"`, `"haiku-4.5"`, `"claude-fable-5"` — and a `provider:` prefix picks
+the provider explicitly:
+
+- `"claude:opus"` — the Claude CLI (the default; `claude` must be installed).
+- `"openai:gpt-5.5-mini"` (or `"codex:…"`) — the OpenAI Codex CLI, `codex exec`,
+  which must be installed and authenticated.
+
+Both give the same validated, structured findings (Codex via its
+`--output-schema`). Two caveats on Codex: `budgetUsd` has no effect (Codex has
+no per-run USD cap, so the run is bounded by the profile's `timeoutMinutes`),
+and the report shows no USD cost. `--fix` runs on Claude regardless.
+
 ### Managing profiles
 
 You do not have to hand-edit the config. Describe a profile in any language
