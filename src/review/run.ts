@@ -1,5 +1,5 @@
 import { type AgentlintConfig, ConfigError, SCOPE_NAME_PATTERN, loadConfig } from '../config.js';
-import { EngineError, resolveEngine } from '../engine/index.js';
+import { EngineError, resolveRun } from '../engine/index.js';
 import type { EngineFn } from '../engine/index.js';
 import {
   type ProfileName,
@@ -51,8 +51,10 @@ export interface ReviewRunOptions {
   onStart?: (info: { profile: ProfileName; model: string }) => void;
   /** Called per tool the reviewer runs; enables the live streaming path. */
   onStep?: (step: string) => void;
-  /** Injectable for tests; defaults to the real claude CLI adapter. */
+  /** Injectable for tests; defaults to the resolved engine's adapter. */
   engine?: EngineFn;
+  /** Force the engine (`--engine`), overriding the profile's model provider. */
+  engineName?: string;
 }
 
 export type ReviewRunOutcome =
@@ -72,6 +74,9 @@ export type ReviewRunOutcome =
       durationMs: number;
       /** The cache key of this run; the handle `ignore --run` points at. */
       runId: string;
+      /** The engine `--fix` runs on: the review's engine and its fix model. */
+      fixEngine: EngineFn;
+      fixModel: string;
     };
 
 export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcome> {
@@ -83,7 +88,20 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   // failOn decides pass/block, so it shapes the verdict and belongs in the
   // cache key (below) — a stricter threshold must not reuse a laxer pass.
   const failOn = opts.failOn ?? config.failOn;
-  opts.onStart?.({ profile: profileName, model: profile.model });
+
+  // Resolve the engine and concrete model up front, so the progress line, the
+  // cache identity, and the fixer all reflect what actually runs. Precedence:
+  // --engine › the model's provider prefix/ownership › profile/config/env hint
+  // › autodetect (claude when both CLIs are installed).
+  const resolution = await resolveRun({
+    model: profile.model,
+    cliEngine: opts.engineName,
+    weakEngine: profile.engine ?? config.engine ?? process.env.AGENTLINT_ENGINE,
+    tier: profile.tier,
+  });
+  const engine = opts.engine ?? resolution.engine.run;
+  const model = resolution.model;
+  opts.onStart?.({ profile: profileName, model });
   const target: TargetSpec = opts.target ?? { kind: 'working-tree' };
 
   // An explicit --scope wins; otherwise the profile may carry a default scope.
@@ -94,11 +112,6 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
   if (isEmpty(changeSet)) return { kind: 'empty' };
   enforceSizeCap(changeSet, profile);
 
-  // Pick the provider from the model string ("openai:…" → codex) and pass it
-  // the bare model. A test-injected engine bypasses the registry.
-  const chosen = resolveEngine(profile.model);
-  const engine = opts.engine ?? chosen.engine;
-  const model = chosen.model;
   const [principles, rules] = await Promise.all([
     loadPrinciples(),
     loadRules(repoRoot, {
@@ -136,7 +149,9 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     guidance: JSON.stringify([
       principles,
       rules,
-      profile.model,
+      // The engine and concrete model both shape the verdict, so a review on
+      // codex never satisfies a claude cache entry, and vice versa.
+      `${resolution.engine.name}:${model}`,
       profile.promptFocus ?? '',
       profile.tools.length > 0,
       profile.refute,
@@ -161,6 +176,8 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
         costUsd: 0,
         durationMs: Date.now() - startedAt,
         runId: key,
+        fixEngine: resolution.engine.run,
+        fixModel: resolution.engine.models.fix,
       };
     }
   }
@@ -195,8 +212,8 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
         envelope.result,
       jsonSchema: reviewerOutputJsonSchema,
       tools: [],
-      // Cheap salvage on claude (haiku); on another provider reuse its model.
-      model: chosen.provider === 'claude' ? 'haiku' : model,
+      // Cheap salvage on the same engine's lightest (quick-tier) model.
+      model: resolution.engine.models.quick,
       maxTurns: 4,
       maxBudgetUsd: 0.2,
       cwd: repoRoot,
@@ -248,7 +265,7 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     // whose result is already computed.
     const meta: CacheMeta = {
       profile: profileName,
-      model: profile.model,
+      model,
       target: changeSet.description,
       failOn,
       at: new Date().toISOString(),
@@ -273,6 +290,8 @@ export async function runReview(opts: ReviewRunOptions): Promise<ReviewRunOutcom
     costUsd,
     durationMs: Date.now() - startedAt,
     runId: key,
+    fixEngine: resolution.engine.run,
+    fixModel: resolution.engine.models.fix,
   };
 }
 

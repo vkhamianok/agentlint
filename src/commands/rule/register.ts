@@ -5,27 +5,45 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import { DEFAULT_CONFIG, loadConfig } from '../../config.js';
-import { resolveEngine } from '../../engine/index.js';
+import { type EngineFn, resolveRun } from '../../engine/index.js';
 import { resolveRepoRoot } from '../../review/targets.js';
 import { type Severity, severities } from '../../schema.js';
 import { withProgress } from '../progress.js';
 import { parseSeverityOption } from '../shared.js';
 import { addRule, checkRules, editRule, listRules, removeRule } from './operations.js';
 
-/** Project rules dir + the model for generation, or the global equivalents. */
-async function ruleTarget(global: boolean | undefined): Promise<{ dir: string; model: string }> {
+/** Project rules dir + the standard profile's model/engine, or global equivalents. */
+async function ruleTarget(
+  global: boolean | undefined,
+): Promise<{ dir: string; model?: string; engine?: string }> {
   if (global) {
-    // No project config to read; the default standard model lives in one place.
+    // No project config to read; the default standard settings live in one place.
     return {
       dir: path.join(os.homedir(), '.agentlint', 'rules'),
       model: DEFAULT_CONFIG.profiles.standard.model,
+      engine: DEFAULT_CONFIG.engine,
     };
   }
   const repoRoot = await resolveRepoRoot(process.cwd());
+  const config = await loadConfig(repoRoot);
   return {
     dir: path.join(repoRoot, '.agentlint', 'rules'),
-    model: (await loadConfig(repoRoot)).profiles.standard.model,
+    model: config.profiles.standard.model,
+    engine: config.engine,
   };
+}
+
+/** The engine and model rule generation runs on — the standard profile's. */
+async function ruleGenerator(target: {
+  model?: string;
+  engine?: string;
+}): Promise<{ engine: EngineFn; model: string }> {
+  const { engine, model } = await resolveRun({
+    model: target.model,
+    weakEngine: target.engine ?? process.env.AGENTLINT_ENGINE,
+    tier: 'standard',
+  });
+  return { engine: engine.run, model };
 }
 
 /** Registers `agentlint rule add|edit|list|check|remove`. */
@@ -45,13 +63,13 @@ export function registerRule(program: Command): void {
         opts: { global?: boolean; severity?: string; name?: string },
       ) => {
         const target = await ruleTarget(opts.global);
-        const { engine, model } = resolveEngine(target.model);
+        const { engine, model } = await ruleGenerator(target);
         const rule = await withProgress('agentlint rule add', () =>
           addRule({
             engine,
             description: descriptionWords.join(' '),
             targetDir: target.dir,
-            model: model!,
+            model,
             severity: parseSeverityOption(opts.severity, '--severity'),
             name: opts.name,
             cwd: process.cwd(),
@@ -76,14 +94,14 @@ export function registerRule(program: Command): void {
         opts: { global?: boolean; severity?: string },
       ) => {
         const target = await ruleTarget(opts.global);
-        const { engine, model } = resolveEngine(target.model);
+        const { engine, model } = await ruleGenerator(target);
         const rule = await withProgress('agentlint rule edit', () =>
           editRule({
             engine,
             slug,
             instruction: instructionWords.join(' '),
             targetDir: target.dir,
-            model: model!,
+            model,
             severity: parseSeverityOption(opts.severity, '--severity'),
             cwd: process.cwd(),
           }),
@@ -126,9 +144,13 @@ export function registerRule(program: Command): void {
     .description('audit the rule set for contradictions, duplication, vagueness, and noise risks')
     .action(async () => {
       const repoRoot = await resolveRepoRoot(process.cwd());
-      const { engine, model } = resolveEngine((await loadConfig(repoRoot)).profiles.standard.model);
+      const config = await loadConfig(repoRoot);
+      const { engine, model } = await ruleGenerator({
+        model: config.profiles.standard.model,
+        engine: config.engine,
+      });
       const audit = await withProgress('agentlint rule check', () =>
-        checkRules({ engine, repoRoot, model: model! }),
+        checkRules({ engine, repoRoot, model }),
       );
 
       console.log(`\n${audit.summary}\n`);

@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import { ConfigError } from '../config.js';
-import { runClaude } from '../engine/claude.js';
+import { ENGINE_NAMES } from '../engine/index.js';
 import { BUILTIN_PROFILES, detectContext } from '../profiles.js';
 import type { ReportMeta } from '../report/json.js';
 import { renderTerminalReport } from '../report/terminal.js';
@@ -23,6 +23,7 @@ interface ReviewCliOptions {
   taskFile?: string;
   failOn?: string;
   profile?: string;
+  engine?: string;
   scope?: string;
   nonInteractive?: boolean;
   report?: string;
@@ -51,6 +52,10 @@ export function registerReview(program: Command): void {
       .option(
         '--profile <name>',
         `profile: ${BUILTIN_PROFILES.join(' | ')} or a custom one (default: by context)`,
+      )
+      .option(
+        '--engine <name>',
+        `force the engine: ${ENGINE_NAMES.join(' | ')} (default: from the model, else autodetect)`,
       )
       .option(
         '--scope <name|glob>',
@@ -110,6 +115,7 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
     task,
     failOn: parseFailOn(opts.failOn),
     profile: opts.profile,
+    engineName: opts.engine,
     scope: opts.scope,
     context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
     noCache: opts.cache === false,
@@ -139,12 +145,16 @@ async function executeDiffFlow(opts: ReviewCliOptions): Promise<void> {
       // With --report -, stdout carries the JSON line and nothing else;
       // the fix narration is for humans only.
       if (!jsonOnly) console.log(pc.bold(`\nFixing ${confirmed.length} finding(s)...`));
+      // Fix on the same engine that reviewed, using its fixer-tier model. Read
+      // these before the closure: `outcome` is reassigned by the re-review
+      // below, so its narrowing does not survive into the callback.
+      const { fixEngine, fixModel } = outcome;
       const fixResult = await withProgress('agentlint fix', () =>
         runFixes({
-          engine: runClaude,
+          engine: fixEngine,
           repoRoot,
           findings: confirmed,
-          model: 'sonnet',
+          model: fixModel,
           task,
           answers,
         }),
@@ -185,6 +195,7 @@ async function execute(target: TargetSpec, opts: ReviewCliOptions): Promise<void
       task,
       failOn: parseFailOn(opts.failOn),
       profile: opts.profile,
+      engineName: opts.engine,
       scope: opts.scope,
       context: opts.nonInteractive ? detectContext(process.env, false) : detectContext(process.env),
       noCache: opts.cache === false,

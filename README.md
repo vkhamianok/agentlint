@@ -220,18 +220,34 @@ profile; `--profile <name>` overrides it. The set is open — see
 
 ### Engines: Claude and Codex
 
-A profile's `model` chooses the engine. A bare model runs on Claude Code —
-`"opus"`, `"haiku-4.5"`, `"claude-fable-5"` — and a `provider:` prefix picks
-the provider explicitly:
+agentlint reviews with either the Claude CLI or the OpenAI Codex CLI. If you
+configure nothing, it **autodetects** the one installed — and picks Claude when
+both are. Each engine supplies its own model per tier:
 
-- `"claude:opus"` — the Claude CLI (the default; `claude` must be installed).
-- `"openai:gpt-5.5-mini"` (or `"codex:…"`) — the OpenAI Codex CLI, `codex exec`,
-  which must be installed and authenticated.
+| tier       | claude   | codex          |
+| ---------- | -------- | -------------- |
+| `quick`    | `haiku`  | `gpt-5.4-mini` |
+| `standard` | `sonnet` | `gpt-5.4`      |
+| `deep`     | `opus`   | `gpt-5.5`      |
 
-Both give the same validated, structured findings (Codex via its
-`--output-schema`). Two caveats on Codex: `budgetUsd` has no effect (Codex has
-no per-run USD cap, so the run is bounded by the profile's `timeoutMinutes`),
-and the report shows no USD cost. `--fix` runs on Claude regardless.
+You can be explicit in three ways, most specific first:
+
+- **Pin a model** on a profile: `"model": "opus"` or `"model": "openai:gpt-5.5"`.
+  A bare model's provider is inferred (`opus` → claude, `gpt-5.4` → codex); a
+  `provider:` prefix (`claude:…`, `openai:…`, alias `codex:…`) is exact.
+- **Pin an engine** without a model: `--engine claude|openai` on the command, a
+  top-level `"engine"` in the config, or `"engine"` on a profile. The profile's
+  tier then chooses the model. `agentlint review --profile deep --engine openai`
+  runs codex's `gpt-5.5`.
+- **The `AGENTLINT_ENGINE` env var** sets the default engine for a shell.
+
+`--fix` runs on the same engine that reviewed, using that engine's fixer model.
+
+Both engines give the same validated, structured findings (Codex via
+`codex exec --output-schema`, reshaped to OpenAI's stricter schema form). Two
+caveats on Codex: `budgetUsd` has no effect (Codex has no per-run USD cap, so a
+run is bounded by the profile's `timeoutMinutes`), and the report shows no USD
+cost.
 
 ### Managing profiles
 

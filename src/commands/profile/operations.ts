@@ -178,7 +178,9 @@ export async function listProfiles(repoRoot: string, homeDir?: string): Promise<
     .map(([name, settings]) => ({
       name,
       source: (BUILTINS.includes(name) ? 'built-in' : 'custom') as 'built-in' | 'custom',
-      model: settings.model,
+      // A profile with no pinned model draws its model from the chosen engine's
+      // tier at run time; show that rather than an empty column.
+      model: settings.model ?? '(auto)',
       budgetUsd: settings.budgetUsd,
       hasInstructions: Boolean(settings.instructions),
     }))

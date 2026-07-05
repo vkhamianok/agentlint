@@ -16,3 +16,9 @@ if (!process.env.AGENTLINT_E2E) {
   process.env.HOME = isolatedHome;
   process.env.USERPROFILE = isolatedHome;
 }
+
+// Pin the default engine to claude so a review under the default (model-less)
+// config resolves without probing for installed CLIs — no `claude --version` /
+// `codex --version` spawn during unit tests. Engine-resolution logic itself is
+// tested directly with an injected detector, unaffected by this.
+process.env.AGENTLINT_ENGINE ??= 'claude';

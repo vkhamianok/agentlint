@@ -2,15 +2,25 @@
 
 ## Unreleased
 
-- **Pluggable engine — codex alongside claude.** A profile's model may now name
-  a provider: `claude:opus` or `openai:gpt-5.5-mini`. A bare model (`opus`,
-  `haiku-4.5`) still defaults to claude, so existing configs are unchanged.
-  `openai:` (alias `codex:`) routes to the OpenAI Codex CLI (`codex exec`),
-  using its `--output-schema` for the same validated structured output claude
-  gives via `--json-schema`. Both spawn with an argv array, never a shell.
-  Limitations on codex: no per-run USD cap (`budgetUsd` is a no-op there — the
-  run is bounded by the profile timeout instead) and no USD cost in the report;
-  `--fix` still runs on claude.
+- **Pluggable engine — codex alongside claude.** agentlint can now review with
+  the OpenAI Codex CLI as well as claude, and picks between them sensibly:
+  - **Autodetect.** With nothing configured, agentlint uses whichever CLI is
+    installed (claude when both are). So a codex-only machine just works, and a
+    claude machine is unchanged. Each engine supplies its own model per tier —
+    claude: `haiku`/`sonnet`/`opus`; codex: `gpt-5.4-mini`/`gpt-5.4`/`gpt-5.5`.
+  - **Pin a model.** A profile's `model` may name a provider —`claude:opus`,
+    `openai:gpt-5.5-mini` — or a bare model whose provider is inferred (`opus` →
+    claude, `gpt-5.4` → codex). A bare claude alias behaves exactly as before.
+  - **Pin an engine.** `--engine claude|openai`, a project-level `engine`, or a
+    per-profile `engine` forces the engine; `--engine` wins. Combined with a
+    tier, `--profile deep --engine openai` runs codex's deep model.
+  - `--fix` now runs on the **same engine** that reviewed, using that engine's
+    fixer model (no longer always claude).
+  - **Under the hood.** Codex uses `codex exec --output-schema` for the same
+    validated structured output claude gives via `--json-schema` (the schema is
+    reshaped to OpenAI's stricter form). Both engines spawn with an argv array,
+    never a shell. Codex has no per-run USD cap (`budgetUsd` is a no-op there —
+    the profile timeout bounds the run) and reports no USD cost.
 - `agentlint scope add | edit | remove | list` manages named scopes from the
   CLI, like `profile` and `rule` — no more hand-editing the `scopes` map in
   `config.json`. It is a plain config edit (no LLM); globs are stored canonical

@@ -11,12 +11,17 @@ export async function configFilePath(global: boolean | undefined): Promise<strin
   return path.join(dir, '.agentlint', 'config.json');
 }
 
-/** The model that writes the generated text — the standard profile's. */
-export async function generatorModel(global: boolean | undefined): Promise<string> {
+/** The model+engine that writes generated text — the standard profile's. */
+export async function generatorSettings(
+  global: boolean | undefined,
+): Promise<{ model?: string; engine?: string }> {
   // --global runs outside any repo, so there is no project config to merge;
-  // the shipped default is the right generation model there.
-  if (global) return DEFAULT_CONFIG.profiles.standard.model;
-  return (await loadConfig(await resolveRepoRoot(process.cwd()))).profiles.standard.model;
+  // the shipped defaults are the right generation settings there.
+  if (global) {
+    return { model: DEFAULT_CONFIG.profiles.standard.model, engine: DEFAULT_CONFIG.engine };
+  }
+  const config = await loadConfig(await resolveRepoRoot(process.cwd()));
+  return { model: config.profiles.standard.model, engine: config.engine };
 }
 
 /** Validates a severity option value (--severity, --fail-on), or undefined. */

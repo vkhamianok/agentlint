@@ -1,10 +1,10 @@
 import { Command } from 'commander';
 import pc from 'picocolors';
 
-import { resolveEngine } from '../../engine/index.js';
+import { type EngineFn, resolveRun } from '../../engine/index.js';
 import { resolveRepoRoot } from '../../review/targets.js';
 import { withProgress } from '../progress.js';
-import { configFilePath, generatorModel } from '../shared.js';
+import { configFilePath, generatorSettings } from '../shared.js';
 import {
   type WrittenProfile,
   addProfile,
@@ -16,6 +16,19 @@ import {
 function printProfile(written: WrittenProfile): void {
   console.log(pc.green(`Wrote profile "${written.name}" to ${written.file}`) + '\n');
   console.log(JSON.stringify(written.entry, null, 2));
+}
+
+/** The engine and model that generate a profile — the standard profile's. */
+async function profileGenerator(
+  global: boolean | undefined,
+): Promise<{ engine: EngineFn; model: string }> {
+  const settings = await generatorSettings(global);
+  const { engine, model } = await resolveRun({
+    model: settings.model,
+    weakEngine: settings.engine ?? process.env.AGENTLINT_ENGINE,
+    tier: 'standard',
+  });
+  return { engine: engine.run, model };
 }
 
 /** Registers `agentlint profile add|edit|remove|list`. */
@@ -34,13 +47,13 @@ export function registerProfile(program: Command): void {
         descriptionWords: string[],
         opts: { global?: boolean; model?: string; name?: string },
       ) => {
-        const gen = resolveEngine(await generatorModel(opts.global));
+        const gen = await profileGenerator(opts.global);
         const written = await withProgress('agentlint profile add', async () =>
           addProfile({
             engine: gen.engine,
             description: descriptionWords.join(' '),
             configPath: await configFilePath(opts.global),
-            generatorModel: gen.model!,
+            generatorModel: gen.model,
             model: opts.model,
             name: opts.name,
             cwd: process.cwd(),
@@ -63,14 +76,14 @@ export function registerProfile(program: Command): void {
         instructionWords: string[],
         opts: { global?: boolean; model?: string },
       ) => {
-        const gen = resolveEngine(await generatorModel(opts.global));
+        const gen = await profileGenerator(opts.global);
         const written = await withProgress('agentlint profile edit', async () =>
           editProfile({
             engine: gen.engine,
             name,
             instruction: instructionWords.join(' '),
             configPath: await configFilePath(opts.global),
-            generatorModel: gen.model!,
+            generatorModel: gen.model,
             model: opts.model,
             cwd: process.cwd(),
           }),

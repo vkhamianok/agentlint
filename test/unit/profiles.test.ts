@@ -4,9 +4,11 @@ import { DEFAULT_CONFIG } from '../../src/config.js';
 import { detectContext, resolveProfile } from '../../src/profiles.js';
 
 describe('resolveProfile', () => {
-  it('quick: cheap model, single-shot without tools, blocker focus', () => {
+  it('quick: no pinned model, single-shot without tools, blocker focus', () => {
     const profile = resolveProfile('quick', DEFAULT_CONFIG);
-    expect(profile.model).toBe('haiku');
+    // The default config pins no model — the engine's quick tier supplies it.
+    expect(profile.model).toBeUndefined();
+    expect(profile.tier).toBe('quick');
     expect(profile.tools).toEqual([]); // no exploration: hook latency must be predictable
     expect(profile.maxTurns).toBeLessThanOrEqual(4);
     expect(profile.maxDiffKb).toBe(64); // tighter than the 200 KB config default
@@ -37,18 +39,19 @@ describe('resolveProfile', () => {
     expect(profile.maxDiffKb).toBe(32);
   });
 
-  it('standard: config model and cap, read tools, no focus, no refutation', () => {
+  it('standard: read tools, no focus, no refutation', () => {
     const profile = resolveProfile('standard', DEFAULT_CONFIG);
-    expect(profile.model).toBe('sonnet');
+    expect(profile.model).toBeUndefined();
+    expect(profile.tier).toBe('standard');
     expect(profile.tools).toEqual(['Read', 'Grep', 'Glob']);
     expect(profile.maxDiffKb).toBe(200);
     expect(profile.promptFocus).toBeUndefined();
     expect(profile.refute).toBe(false);
   });
 
-  it('deep: strongest model and the refutation pass', () => {
+  it('deep: deep tier and the refutation pass', () => {
     const profile = resolveProfile('deep', DEFAULT_CONFIG);
-    expect(profile.model).toBe('opus');
+    expect(profile.tier).toBe('deep');
     expect(profile.refute).toBe(true);
     expect(profile.promptFocus).toContain('independently');
   });
@@ -69,6 +72,7 @@ describe('resolveProfile', () => {
     const profile = resolveProfile('audit', config);
 
     expect(profile.model).toBe('claude-fable-5');
+    expect(profile.tier).toBe('deep'); // a custom profile is deep-shaped
     expect(profile.tools).toEqual(['Read', 'Grep', 'Glob']); // explores like deep
     expect(profile.refute).toBe(true); // verifies like deep
     expect(profile.maxBudgetUsd).toBe(10);

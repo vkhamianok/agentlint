@@ -30,6 +30,51 @@ export function codexBinary(): string {
   return process.env.AGENTLINT_CODEX_BIN ?? 'codex';
 }
 
+// Validation keywords OpenAI's strict json-schema mode does not accept; they
+// ride along from zod (looseObject, .min(1), etc.) and must be dropped.
+const UNSUPPORTED_KEYWORDS = [
+  'minItems',
+  'maxItems',
+  'minLength',
+  'maxLength',
+  'minimum',
+  'maximum',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'multipleOf',
+  'uniqueItems',
+  'pattern',
+  'format',
+  'default',
+  'minContains',
+  'maxContains',
+];
+
+/**
+ * Reshapes a JSON Schema (built for claude) into the strict form OpenAI's
+ * structured output demands: every object forbids additional properties and
+ * lists all of its properties as required, and unsupported validation keywords
+ * are stripped. Every property in our schemas is required already, so making
+ * `required` exhaustive changes nothing about what a valid answer looks like.
+ */
+export function toStrictSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(toStrictSchema);
+  if (node === null || typeof node !== 'object') return node;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (UNSUPPORTED_KEYWORDS.includes(key)) continue;
+    // additionalProperties must be a literal false, never a sub-schema.
+    out[key] = key === 'additionalProperties' ? undefined : toStrictSchema(value);
+  }
+
+  if (out.properties && typeof out.properties === 'object') {
+    out.additionalProperties = false;
+    out.required = Object.keys(out.properties as Record<string, unknown>);
+  }
+  return out;
+}
+
 export async function runCodex(opts: EngineRunOptions): Promise<EngineResult> {
   const bin = codexBinary();
   const sandbox = opts.permissionMode === 'acceptEdits' ? 'workspace-write' : 'read-only';
@@ -51,7 +96,12 @@ export async function runCodex(opts: EngineRunOptions): Promise<EngineResult> {
   if (opts.model) args.push('--model', opts.model);
   if (opts.jsonSchema) {
     const schemaFile = path.join(os.tmpdir(), `agentlint-codex-schema-${randomUUID()}.json`);
-    await writeFile(schemaFile, JSON.stringify(opts.jsonSchema), 'utf8');
+    // codex's --output-schema feeds OpenAI's *strict* structured-output
+    // validator, which is far pickier than claude's --json-schema: every object
+    // must forbid extra keys and list all its properties as required, and the
+    // loose validation keywords our zod schema emits (minItems, etc.) are
+    // rejected outright. Reshape the schema to satisfy it.
+    await writeFile(schemaFile, JSON.stringify(toStrictSchema(opts.jsonSchema)), 'utf8');
     temps.push(schemaFile);
     args.push('--output-schema', schemaFile);
   }

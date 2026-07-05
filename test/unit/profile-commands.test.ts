@@ -210,12 +210,13 @@ describe('editProfile', () => {
       cwd: path.dirname(configPath),
     });
 
-    // The editor must see quick's real model/budget as the current profile,
-    // not {} — so it cannot silently guess and replace them.
+    // The editor must see quick's real settings as the current profile, not {}
+    // — so it cannot silently guess and replace them. Quick pins no model (the
+    // engine's quick tier supplies it), so its budget is the tell it was seeded.
     const prompt = engine.mock.calls[0]![0].prompt as string;
-    expect(prompt).toContain('haiku');
+    expect(prompt).toContain('budgetUsd');
     expect(prompt).toContain('0.3');
-    expect(written.entry.model).toBe('haiku');
+    expect(written.entry.model).toBe('haiku'); // the model the generator returned
   });
 
   it('errors when the profile does not exist', async () => {

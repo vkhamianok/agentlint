@@ -32,6 +32,10 @@ const scopeName = z
   .string()
   .regex(SCOPE_NAME_PATTERN, 'scope names are lower-case kebab, e.g. "orchestrator"');
 
+// Which engine (CLI) runs a review. "codex" is an alias of "openai". Kept in
+// sync with the engine registry; a bare list avoids a config→engine import.
+const engineName = z.enum(['claude', 'openai', 'codex']);
+
 // One config.rules / profile.rules entry: a selector string, or the object
 // form that overrides the severity of whatever it selects.
 const ruleSelectorSchema = z.union([
@@ -41,6 +45,8 @@ const ruleSelectorSchema = z.union([
 
 const profileOverrideSchema = z.strictObject({
   model: modelName.optional(),
+  /** Engine for this profile when the model does not name one; --engine wins. */
+  engine: engineName.optional(),
   timeoutMinutes: z.number().positive().optional(),
   budgetUsd: z.number().positive().optional(),
   /** Free-text focus appended to the reviewer's system prompt. */
@@ -57,6 +63,9 @@ const profileOverrideSchema = z.strictObject({
 const configFileSchema = z.strictObject({
   failOn: z.enum(severities).optional(),
   maxDiffKb: z.number().positive().optional(),
+  // Default engine when a profile names no model/engine; a bare profile then
+  // uses this engine's tier model. Absent = autodetect the installed CLI.
+  engine: engineName.optional(),
   // An open set: the built-in quick/standard/deep can be tuned, and new
   // named profiles (e.g. a security "audit" on a stronger model) can be added.
   profiles: z.record(profileName, profileOverrideSchema).optional(),
@@ -124,7 +133,13 @@ export async function writeConfigObject(file: string, config: ConfigFile): Promi
 }
 
 export interface ProfileSettings {
-  model: string;
+  /**
+   * The model to review with, optionally "provider:model". Absent = the chosen
+   * engine's default model for this profile's tier (see resolveRun).
+   */
+  model?: string;
+  /** Engine for this profile when the model names none; --engine overrides. */
+  engine?: string;
   /** Hard wall-clock cap per review run. */
   timeoutMinutes: number;
   /** Hard spend cap per review run. */
@@ -157,6 +172,8 @@ export interface AgentlintConfig {
     standard: ProfileSettings;
     deep: ProfileSettings;
   };
+  /** Default engine when a profile names none; absent = autodetect installed. */
+  engine?: string;
   /** Which profile each run context uses; --profile overrides. */
   defaultProfile: { manual: string; hook: string; ci: string };
   /** Named path filters: scope name → include globs, chosen with --scope. */
@@ -175,10 +192,13 @@ export interface AgentlintConfig {
 export const DEFAULT_CONFIG: AgentlintConfig = {
   failOn: 'blocker',
   maxDiffKb: 200,
+  // No model is pinned: with nothing configured, agentlint autodetects the
+  // installed engine (claude when both are present) and uses its tier model.
+  // A profile can still pin one via `model` (e.g. "openai:gpt-5.5").
   profiles: {
-    quick: { model: 'haiku', timeoutMinutes: 5, budgetUsd: 0.3 },
-    standard: { model: 'sonnet', timeoutMinutes: 10, budgetUsd: 1.5 },
-    deep: { model: 'opus', timeoutMinutes: 20, budgetUsd: 4 },
+    quick: { timeoutMinutes: 5, budgetUsd: 0.3 },
+    standard: { timeoutMinutes: 10, budgetUsd: 1.5 },
+    deep: { timeoutMinutes: 20, budgetUsd: 4 },
   },
   defaultProfile: { manual: 'standard', hook: 'quick', ci: 'deep' },
   scopes: {},
@@ -210,6 +230,7 @@ function mergeConfig(acc: AgentlintConfig, file: ConfigFile): AgentlintConfig {
   return {
     failOn: file.failOn ?? acc.failOn,
     maxDiffKb: file.maxDiffKb ?? acc.maxDiffKb,
+    engine: file.engine ?? acc.engine,
     profiles: mergeProfiles(acc.profiles, file.profiles),
     defaultProfile: {
       manual: file.defaultProfile?.manual ?? acc.defaultProfile.manual,
@@ -239,6 +260,7 @@ function mergeProfiles(
     const base = acc[name] ?? acc.standard;
     merged[name] = {
       model: override.model ?? base.model,
+      engine: override.engine ?? acc[name]?.engine,
       timeoutMinutes: override.timeoutMinutes ?? base.timeoutMinutes,
       budgetUsd: override.budgetUsd ?? base.budgetUsd,
       instructions: override.instructions ?? base.instructions,

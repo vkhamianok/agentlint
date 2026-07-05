@@ -1,4 +1,5 @@
 import { type AgentlintConfig, ConfigError } from './config.js';
+import type { ProfileTier } from './engine/index.js';
 import type { RuleSelector } from './rules.js';
 
 export const BUILTIN_PROFILES = ['quick', 'standard', 'deep'] as const;
@@ -10,7 +11,12 @@ export type RunContext = 'manual' | 'hook' | 'ci';
 
 export interface ResolvedProfile {
   name: ProfileName;
-  model: string;
+  /** The configured model, if any; resolveRun turns it (or the tier) concrete. */
+  model?: string;
+  /** Engine hint for this profile (config); --engine overrides it. */
+  engine?: string;
+  /** Which engine tier supplies the model when none is pinned. */
+  tier: ProfileTier;
   /** Built-in tools for the reviewer; empty = single-shot, diff only. */
   tools: string[];
   maxTurns: number;
@@ -57,6 +63,9 @@ export function resolveProfile(name: ProfileName, config: AgentlintConfig): Reso
     );
   }
 
+  // A built-in profile's name is its tier; a custom profile is deep-shaped, so
+  // it draws on the deep tier's model when none is pinned.
+  const tier: ProfileTier = name === 'quick' || name === 'standard' ? name : 'deep';
   const isQuick = name === 'quick';
   const explore = !isQuick;
   // Standard is the only exploring profile that skips refutation; deep and
@@ -73,6 +82,8 @@ export function resolveProfile(name: ProfileName, config: AgentlintConfig): Reso
   return {
     name,
     model: settings.model,
+    engine: settings.engine,
+    tier,
     tools: explore ? READ_TOOLS : [],
     maxTurns: isQuick ? 4 : refute ? 60 : 40,
     maxBudgetUsd: settings.budgetUsd,
