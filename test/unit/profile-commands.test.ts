@@ -9,7 +9,7 @@ import {
   editProfile,
   listProfiles,
   removeProfile,
-} from '../../src/commands/profile.js';
+} from '../../src/commands/profile/operations.js';
 import { ConfigError } from '../../src/config.js';
 import type { ClaudeEnvelope } from '../../src/engine/claude.js';
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { initProject } from '../../src/commands/init.js';
+import { initProject } from '../../src/commands/init/operations.js';
 import { ConfigError } from '../../src/config.js';
 import { makeRepo } from '../helpers/repo.js';
 

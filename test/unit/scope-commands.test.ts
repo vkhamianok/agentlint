@@ -4,7 +4,12 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { addScope, editScope, listScopes, removeScope } from '../../src/commands/scope.js';
+import {
+  addScope,
+  editScope,
+  listScopes,
+  removeScope,
+} from '../../src/commands/scope/operations.js';
 import { ConfigError } from '../../src/config.js';
 
 async function tmpConfig(): Promise<string> {

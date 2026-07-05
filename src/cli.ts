@@ -3,12 +3,12 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import pkg from '../package.json' with { type: 'json' };
-import { registerIgnore } from './commands/ignore.js';
-import { registerInit } from './commands/init.js';
-import { registerProfile } from './commands/profile.js';
+import { registerIgnore } from './commands/ignore/register.js';
+import { registerInit } from './commands/init/register.js';
+import { registerProfile } from './commands/profile/register.js';
 import { registerReview } from './commands/review.js';
-import { registerRule } from './commands/rule.js';
-import { registerScope } from './commands/scope.js';
+import { registerRule } from './commands/rule/register.js';
+import { registerScope } from './commands/scope/register.js';
 import { ConfigError } from './config.js';
 import { ClaudeEngineError } from './engine/claude.js';
 import { TargetError } from './review/targets.js';

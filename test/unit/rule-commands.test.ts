@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { addRule, editRule, removeRule } from '../../src/commands/rule.js';
+import { addRule, editRule, removeRule } from '../../src/commands/rule/operations.js';
 import type { ClaudeEnvelope } from '../../src/engine/claude.js';
 import { RuleError } from '../../src/rules.js';
 
@@ -214,7 +214,7 @@ describe('addRule', () => {
       '---\nseverity: blocker\n---\n\n# Local law\n\nBody.',
     );
 
-    const { listRules } = await import('../../src/commands/rule.js');
+    const { listRules } = await import('../../src/commands/rule/operations.js');
     const listing = await listRules(repo, path.join(repo, 'no-home'));
 
     expect(listing).toEqual([
@@ -251,7 +251,7 @@ describe('addRule', () => {
         },
       ],
     };
-    const { checkRules } = await import('../../src/commands/rule.js');
+    const { checkRules } = await import('../../src/commands/rule/operations.js');
     const engine = vi.fn().mockResolvedValue(envelope(audit));
 
     const result = await checkRules({
@@ -271,7 +271,7 @@ describe('addRule', () => {
 
   it('refuses to audit an empty rule set without spending money', async () => {
     const repo = await makeTarget();
-    const { checkRules } = await import('../../src/commands/rule.js');
+    const { checkRules } = await import('../../src/commands/rule/operations.js');
     const engine = vi.fn();
 
     await expect(
