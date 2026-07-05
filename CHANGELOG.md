@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `profile list` now orders built-ins by tier (quick → standard → deep) and
+  then custom profiles alphabetically, instead of one flat alphabetical list
+  that interleaved the two and scrambled the built-in order.
+
 ## 0.4.1 — 2026-07-05
 
 - `--scope` now also accepts an ad-hoc path glob, not only a name predefined

@@ -185,7 +185,15 @@ export async function listProfiles(repoRoot: string, homeDir?: string): Promise<
       budgetUsd: settings.budgetUsd,
       hasInstructions: Boolean(settings.instructions),
     }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => builtinRank(a.name) - builtinRank(b.name) || a.name.localeCompare(b.name));
+}
+
+// Built-ins first in their quick → standard → deep progression (increasing
+// thoroughness), then custom profiles alphabetically — instead of one flat
+// alphabetical list that interleaves the two and scrambles the built-in order.
+function builtinRank(name: string): number {
+  const i = BUILTINS.indexOf(name);
+  return i === -1 ? BUILTINS.length : i;
 }
 
 function assertAddable(name: string, config: ConfigFile): void {

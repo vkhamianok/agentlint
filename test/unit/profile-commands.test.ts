@@ -273,6 +273,9 @@ describe('listProfiles', () => {
 
     const listing = await listProfiles(repo, path.join(repo, 'no-home'));
 
+    // Built-ins in tier order (quick → standard → deep) first, then custom.
+    expect(listing.map((p) => p.name)).toEqual(['quick', 'standard', 'deep', 'audit']);
+
     const byName = Object.fromEntries(listing.map((p) => [p.name, p]));
     expect(byName.quick).toMatchObject({ source: 'built-in', hasInstructions: false });
     expect(byName.audit).toMatchObject({
