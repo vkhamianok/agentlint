@@ -73,24 +73,26 @@ Exit codes: `0` pass, `1` blocking findings, `2` error. Never a silent pass.
 ## Scopes
 
 A scope is a named set of paths — the inverse of `ignore`. Where `ignore` says
-"never look here", a scope says "for this run, look only here". Define scopes in
-the config, then restrict any review to one with `--scope`:
-
-```json
-{
-  "scopes": {
-    "orchestrator": ["services/orchestrator/**"],
-    "web": ["apps/web/**"],
-    "docs": ["docs/**"]
-  }
-}
-```
+"never look here", a scope says "for this run, look only here". Manage scopes
+from the CLI (no need to hand-edit the config):
 
 ```sh
-agentlint scope list                             # scopes this project defines
+agentlint scope add orchestrator "services/orchestrator/**"   # define one
+agentlint scope add web "apps/web/**" "packages/ui/**"        # several globs
+agentlint scope edit web "apps/web/**"                        # replace its globs
+agentlint scope remove web
+agentlint scope list                                          # what is defined
+```
+
+Then restrict any review to a scope with `--scope`:
+
+```sh
 agentlint review snapshot --scope orchestrator   # only that subsystem
 agentlint review staged --scope web              # only staged changes under apps/web
 ```
+
+Scopes live under a `scopes` map in `.agentlint/config.json`, which you can also
+edit directly: `{ "scopes": { "orchestrator": ["services/orchestrator/**"] } }`.
 
 `--scope` also takes an ad-hoc path glob, so a one-off review needs no config
 entry — a value that is not a defined scope name is treated as a glob (comma-

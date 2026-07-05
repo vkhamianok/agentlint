@@ -29,6 +29,7 @@ import { type ReviewRunOutcome, runReview } from './review.js';
 import { addRule, checkRules, editRule, listRules, removeRule } from './rule-commands.js';
 import { RuleError } from './rules.js';
 import { type Severity, severities, severityRank } from './schema.js';
+import { addScope, editScope, listScopes, removeScope } from './scope-commands.js';
 import { TargetError, type TargetSpec, resolveRepoRoot } from './targets.js';
 
 const program = new Command();
@@ -335,8 +336,8 @@ ruleCommand
 
 const profileCommand = program.command('profile').description('manage review profiles');
 
-/** The config file the profile commands read and write. */
-async function profileConfigPath(global: boolean | undefined): Promise<string> {
+/** The config file the profile and scope commands read and write. */
+async function configFilePath(global: boolean | undefined): Promise<string> {
   const dir = global ? os.homedir() : await resolveRepoRoot(process.cwd());
   return path.join(dir, '.agentlint', 'config.json');
 }
@@ -370,7 +371,7 @@ profileCommand
         addProfile({
           engine: runClaude,
           description: descriptionWords.join(' '),
-          configPath: await profileConfigPath(opts.global),
+          configPath: await configFilePath(opts.global),
           generatorModel: await generatorModel(opts.global),
           model: opts.model,
           name: opts.name,
@@ -399,7 +400,7 @@ profileCommand
           engine: runClaude,
           name,
           instruction: instructionWords.join(' '),
-          configPath: await profileConfigPath(opts.global),
+          configPath: await configFilePath(opts.global),
           generatorModel: await generatorModel(opts.global),
           model: opts.model,
           cwd: process.cwd(),
@@ -415,7 +416,7 @@ profileCommand
   .argument('<name>', 'profile name')
   .option('--global', 'remove from ~/.agentlint/config.json instead of this project')
   .action(async (name: string, opts: { global?: boolean }) => {
-    await removeProfile(await profileConfigPath(opts.global), name);
+    await removeProfile(await configFilePath(opts.global), name);
     console.log(pc.green(`Removed profile "${name}"`));
   });
 
@@ -436,27 +437,53 @@ profileCommand
 
 const scopeCommand = program
   .command('scope')
-  .description('named path filters for partial reviews (--scope)');
+  .description('manage named path filters for partial reviews (--scope)');
+
+scopeCommand
+  .command('add')
+  .description('define a named scope from one or more path globs')
+  .argument('<name>', 'scope name (lower-case kebab)')
+  .argument('<glob...>', 'one or more path globs, e.g. "services/api/**"')
+  .option('--global', 'write to ~/.agentlint/config.json instead of this project')
+  .action(async (name: string, globs: string[], opts: { global?: boolean }) => {
+    await addScope(await configFilePath(opts.global), name, globs);
+    console.log(pc.green(`Added scope "${name}"`) + pc.dim(` — ${globs.join(', ')}`));
+  });
+
+scopeCommand
+  .command('edit')
+  .description('replace the globs of an existing scope')
+  .argument('<name>', 'scope name')
+  .argument('<glob...>', 'the new path globs (they replace the old ones)')
+  .option('--global', 'edit in ~/.agentlint/config.json instead of this project')
+  .action(async (name: string, globs: string[], opts: { global?: boolean }) => {
+    await editScope(await configFilePath(opts.global), name, globs);
+    console.log(pc.green(`Updated scope "${name}"`) + pc.dim(` — ${globs.join(', ')}`));
+  });
+
+scopeCommand
+  .command('remove')
+  .description('remove a named scope')
+  .argument('<name>', 'scope name')
+  .option('--global', 'remove from ~/.agentlint/config.json instead of this project')
+  .action(async (name: string, opts: { global?: boolean }) => {
+    await removeScope(await configFilePath(opts.global), name);
+    console.log(pc.green(`Removed scope "${name}"`));
+  });
 
 scopeCommand
   .command('list')
   .description('list the scopes defined for this project')
   .action(async () => {
     const repoRoot = await resolveRepoRoot(process.cwd());
-    const scopes = (await loadConfig(repoRoot)).scopes;
-    const names = Object.keys(scopes).sort();
-    if (names.length === 0) {
-      console.log(
-        pc.dim(
-          'No scopes defined. Add a "scopes" map to .agentlint/config.json, e.g. ' +
-            '{ "orchestrator": ["services/orchestrator/**"] }.',
-        ),
-      );
+    const scopes = await listScopes(repoRoot);
+    if (scopes.length === 0) {
+      console.log(pc.dim('No scopes defined. Add one: agentlint scope add <name> <glob>.'));
       return;
     }
-    const width = Math.max(...names.map((n) => n.length));
-    for (const name of names) {
-      console.log(`${name.padEnd(width)}  ${pc.dim(scopes[name]!.join(', '))}`);
+    const width = Math.max(...scopes.map((s) => s.name.length));
+    for (const s of scopes) {
+      console.log(`${s.name.padEnd(width)}  ${pc.dim(s.globs.join(', '))}`);
     }
   });
 

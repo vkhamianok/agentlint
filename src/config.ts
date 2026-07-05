@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -107,6 +107,20 @@ export async function readConfigJson(file: string): Promise<unknown | undefined>
   } catch {
     throw new ConfigError(`Config ${file} is not valid JSON.`);
   }
+}
+
+/** Reads a config file into a validated object, or an empty one if absent. */
+export async function readConfigObject(file: string): Promise<ConfigFile> {
+  const json = await readConfigJson(file);
+  if (json === undefined) return {}; // no config yet — start fresh
+  return parseConfigFile(json, file);
+}
+
+/** Writes a config object, validating it first so a broken file is never written. */
+export async function writeConfigObject(file: string, config: ConfigFile): Promise<void> {
+  parseConfigFile(config, file); // never write a config the loader would reject
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, JSON.stringify(config, null, 2) + '\n', 'utf8');
 }
 
 export interface ProfileSettings {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `agentlint scope add | edit | remove | list` manages named scopes from the
+  CLI, like `profile` and `rule` — no more hand-editing the `scopes` map in
+  `config.json`. It is a plain config edit (no LLM); globs are stored canonical
+  (backslashes normalized to slashes on Windows).
 - `profile list` now orders built-ins by tier (quick → standard → deep) and
   then custom profiles alphabetically, instead of one flat alphabetical list
   that interleaved the two and scrambled the built-in order.

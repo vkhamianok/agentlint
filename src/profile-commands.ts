@@ -1,6 +1,3 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-
 import { z } from 'zod';
 
 import {
@@ -10,8 +7,8 @@ import {
   MODEL_NAME_PATTERN,
   PROFILE_NAME_PATTERN,
   loadConfig,
-  parseConfigFile,
-  readConfigJson,
+  readConfigObject,
+  writeConfigObject,
 } from './config.js';
 import { BUILTIN_PROFILES } from './profiles.js';
 import type { EngineFn } from './review.js';
@@ -249,12 +246,6 @@ function buildEditorPrompt(
     .join('\n\n');
 }
 
-async function readConfigObject(configPath: string): Promise<ConfigFile> {
-  const json = await readConfigJson(configPath);
-  if (json === undefined) return {}; // no config yet — start fresh
-  return parseConfigFile(json, configPath);
-}
-
 async function writeProfile(
   configPath: string,
   config: ConfigFile,
@@ -263,10 +254,4 @@ async function writeProfile(
 ): Promise<void> {
   config.profiles = { ...config.profiles, [name]: entry };
   await writeConfigObject(configPath, config);
-}
-
-async function writeConfigObject(configPath: string, config: ConfigFile): Promise<void> {
-  parseConfigFile(config, configPath); // never write a config the loader would reject
-  await mkdir(path.dirname(configPath), { recursive: true });
-  await writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
 }
